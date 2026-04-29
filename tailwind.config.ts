@@ -1,0 +1,118 @@
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ["'DM Sans'", "system-ui", "sans-serif"],
+        display: ["'Syne'", "system-ui", "sans-serif"],
+        mono: ["'JetBrains Mono'", "monospace"],
+      },
+      colors: {
+        cream: {
+          50: "#FDFCF9",
+          100: "#FAF8F3",
+          200: "#F5F0E8",
+          300: "#EDE6D8",
+          400: "#DDD5C4",
+          500: "#C9BEA8",
+          600: "#A89880",
+          700: "#7D6F5A",
+          800: "#524739",
+          900: "#2C2319",
+        },
+        sky: {
+          50: "#EEF6FF",
+          100: "#DAEEFF",
+          200: "#B4DAFD",
+          300: "#7CBAFC",
+          400: "#3D91F8",
+          500: "#1A6EF0",
+          600: "#0C50D4",
+          700: "#083DAB",
+          800: "#06308C",
+          900: "#042068",
+        },
+        sage: {
+          50: "#F0F9EE",
+          100: "#DCF0D8",
+          200: "#B5DEB0",
+          300: "#80C279",
+          400: "#51A048",
+          500: "#2F8025",
+          600: "#1E651A",
+          700: "#175016",
+          800: "#133F13",
+          900: "#0D2E0D",
+        },
+        violet: {
+          50: "#F3F0FF",
+          100: "#E9E3FF",
+          200: "#D4C9FF",
+          300: "#B49CFF",
+          400: "#8F62FF",
+          500: "#6E32FF",
+          600: "#5A15F5",
+          700: "#4D0EDA",
+          800: "#3E0BB5",
+          900: "#2D0890",
+        },
+        coral: {
+          50: "#FFF3EF",
+          100: "#FFE4D9",
+          200: "#FFBFA8",
+          300: "#FF8F6B",
+          400: "#FF6040",
+          500: "#F53B18",
+          600: "#D12409",
+          700: "#A81C07",
+          800: "#851A09",
+          900: "#5E140A",
+        },
+        amber: {
+          50: "#FFFAEB",
+          100: "#FFF0C3",
+          200: "#FFD97D",
+          300: "#FFBA30",
+          400: "#FF9A0D",
+          500: "#E67800",
+          600: "#BB5A00",
+          700: "#914100",
+          800: "#703200",
+          900: "#4E2300",
+        },
+      },
+      animation: {
+        "fade-in": "fadeIn 0.4s ease forwards",
+        "slide-up": "slideUp 0.4s ease forwards",
+        "pulse-glow": "pulseGlow 2s ease-in-out infinite",
+        shimmer: "shimmer 1.5s infinite",
+      },
+      keyframes: {
+        fadeIn: {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        slideUp: {
+          from: { opacity: "0", transform: "translateY(16px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        pulseGlow: {
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(14,165,233,0)" },
+          "50%": { boxShadow: "0 0 0 6px rgba(14,165,233,0.12)" },
+        },
+        shimmer: {
+          "0%": { backgroundPosition: "-700px 0" },
+          "100%": { backgroundPosition: "700px 0" },
+        },
+      },
+    },
+  },
+  plugins: [],
+};
+export default config;
