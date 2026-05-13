@@ -48,44 +48,45 @@ export const MARKETPLACE_ABI = [
       { name: "newPrice", type: "uint256" },
     ],
   },
-  // Read Functions
+  // Read Functions (Mappings & Public Variables)
   {
     type: "function",
-    name: "getListing",
+    name: "listings",
     stateMutability: "view",
     inputs: [
       { name: "nftAddress", type: "address" },
       { name: "tokenId", type: "uint256" },
     ],
     outputs: [
-      { name: "price", type: "uint256" },
       { name: "seller", type: "address" },
+      { name: "price", type: "uint256" },
+      { name: "isActive", type: "bool" },
     ],
   },
   {
     type: "function",
-    name: "getProceeds",
+    name: "proceeds",
     stateMutability: "view",
     inputs: [{ name: "seller", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
   {
     type: "function",
-    name: "getRoyaltyProceeds",
+    name: "royalties",
     stateMutability: "view",
-    inputs: [{ name: "creator", type: "address" }],
+    inputs: [{ name: "receiver", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
   {
     type: "function",
-    name: "getPlatformFees",
+    name: "marketplaceBalance",
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
   {
     type: "function",
-    name: "platformFeeBps",
+    name: "feePercent",
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
@@ -149,7 +150,7 @@ export const MARKETPLACE_ABI = [
   },
   {
     type: "function",
-    name: "withdrawPlatformFees",
+    name: "withdrawMarketplaceFees",
     stateMutability: "nonpayable",
     inputs: [],
     outputs: [],
@@ -158,6 +159,15 @@ export const MARKETPLACE_ABI = [
 
 // ─── ERC721 ABI (minimal) ─────────────────────────────────────────
 export const ERC721_ABI = [
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "tokenId", type: "uint256", indexed: true },
+    ],
+  },
   {
     type: "function",
     name: "ownerOf",
@@ -206,6 +216,67 @@ export const ERC721_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "string" }],
   },
+  {
+    type: "function",
+    name: "owner",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
+// ─── Collection ABI (Uniform Standard) ──────────────────────────
+export const COLLECTION_ABI = [
+  ...ERC721_ABI,
+  {
+    type: "function",
+    name: "mintPrice",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "totalMinted",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "MAX_SUPPLY",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "maxSupply",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "mintNFT",
+    stateMutability: "payable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "contractURI",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+  {
+    type: "function",
+    name: "baseURI",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
 ] as const;
 
 // ─── ERC2981 ABI (royalty standard) ──────────────────────────────
@@ -228,9 +299,22 @@ export const ERC2981_ABI = [
 // ─── Helpers ──────────────────────────────────────────────────────
 export function resolveIPFS(uri: string): string {
   if (!uri) return "/placeholder-nft.svg";
+  
+  // Handle ipfs:// protocol
   if (uri.startsWith("ipfs://")) {
-    return `${IPFS_GATEWAY}${uri.slice(7)}`;
+    return `${IPFS_GATEWAY}${uri.slice(7).replace(/^ipfs\//, "")}`;
   }
+  
+  // Handle ipfs/ path
+  if (uri.startsWith("ipfs/")) {
+    return `${IPFS_GATEWAY}${uri.slice(5)}`;
+  }
+  
+  // Handle raw CID (standard Qm... or ba...)
+  if (uri.startsWith("Qm") || uri.startsWith("ba")) {
+    return `${IPFS_GATEWAY}${uri}`;
+  }
+  
   return uri;
 }
 

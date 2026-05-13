@@ -31,7 +31,12 @@ export interface Collection {
   floorPrice: bigint;
   listedCount: number;
   imageUri?: string;
+  previewImages?: string[];
+  contractURI?: string;
   description?: string;
+  mintPrice?: bigint;
+  totalSupply?: bigint;
+  maxSupply?: bigint;
 }
 
 export interface UserProceeds {

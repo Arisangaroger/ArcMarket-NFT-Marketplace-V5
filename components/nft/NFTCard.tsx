@@ -11,15 +11,20 @@ import { clsx } from "clsx";
 interface NFTCardProps {
   listing: NFTListing;
   onQuickBuy?: (listing: NFTListing) => void;
+  variant?: "default" | "compact";
 }
 
-export function NFTCard({ listing, onQuickBuy }: NFTCardProps) {
+export function NFTCard({ listing, onQuickBuy, variant = "default" }: NFTCardProps) {
+  const isCompact = variant === "compact";
   const [hovered, setHovered] = useState(false);
   const imageUrl = resolveIPFS(listing.metadata?.image || "");
 
   return (
     <div
-      className="group relative bg-white rounded-2xl border border-cream-200 overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-cream-300"
+      className={clsx(
+        "group relative bg-white border border-cream-200 overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:border-cream-300",
+        isCompact ? "rounded-xl" : "rounded-2xl"
+      )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -70,38 +75,40 @@ export function NFTCard({ listing, onQuickBuy }: NFTCardProps) {
       </div>
 
       {/* Info */}
-      <div className="p-4">
+      <div className={clsx(isCompact ? "p-1.5" : "p-4")}>
         {/* Collection + Token ID */}
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-xs text-cream-400 font-sans truncate">
+        <div className="flex items-center justify-between mb-0.5">
+          <p className={clsx("text-cream-400 font-sans truncate", isCompact ? "text-[8px]" : "text-xs")}>
             {listing.collectionName || shortenAddress(listing.nftAddress)}
           </p>
-          <p className="text-xs text-cream-400 font-mono">#{listing.tokenId}</p>
+          <p className={clsx("text-cream-400 font-mono", isCompact ? "text-[8px]" : "text-xs")}>#{listing.tokenId}</p>
         </div>
 
         {/* Name */}
-        <p className="text-sm font-display font-semibold text-cream-900 truncate mb-1">
+        <p className={clsx("font-display font-semibold text-cream-900 truncate", isCompact ? "text-[10px] mb-0" : "text-sm mb-1")}>
           {listing.metadata?.name || `Token #${listing.tokenId}`}
         </p>
 
-        {/* Seller */}
-        <p className="text-xs text-cream-400 font-sans mb-3">
-          by {shortenAddress(listing.seller)}
-        </p>
+        {/* Seller - Hide if compact */}
+        {!isCompact && (
+          <p className="text-xs text-cream-400 font-sans mb-3">
+            by {shortenAddress(listing.seller)}
+          </p>
+        )}
 
         {/* Price */}
         <div className="flex items-end justify-between">
           <div>
-            <p className="text-xs text-cream-400 font-sans">Price</p>
-            <p className="text-lg font-display font-bold text-cream-900 leading-tight">
-              {formatEth(listing.price)} <span className="text-sm font-normal text-cream-500">ETH</span>
+            {!isCompact && <p className="text-xs text-cream-400 font-sans">Price</p>}
+            <p className={clsx("font-display font-bold text-cream-900 leading-tight", isCompact ? "text-[10px]" : "text-lg")}>
+              {formatEth(listing.price)} <span className={clsx("font-normal text-cream-500", isCompact ? "text-[8px]" : "text-sm")}>ETH</span>
             </p>
           </div>
           <RoyaltyBadge
             hasRoyalty={!!listing.hasRoyalty}
             royaltyPercent={listing.royaltyBps ? listing.royaltyBps / 100 : undefined}
             showLabel={false}
-            size="sm"
+            size={isCompact ? "xs" : "sm"}
           />
         </div>
       </div>

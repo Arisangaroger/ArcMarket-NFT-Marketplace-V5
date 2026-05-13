@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useAccount } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
 import Image from "next/image";
 import Link from "next/link";
 import { PriceBreakdown } from "@/components/nft/PriceBreakdown";
@@ -13,26 +13,12 @@ import { Badge } from "@/components/ui/Badge";
 import { useListing, useBuyItem, useListItem, useCancelListing, useUpdateListing } from "@/hooks/useListings";
 import { useRoyaltyInfo } from "@/hooks/useRoyalties";
 import { useApproval } from "@/hooks/useApproval";
-import { formatEth, shortenAddress, resolveIPFS } from "@/lib/constants";
+import { formatEth, shortenAddress, resolveIPFS, ERC721_ABI } from "@/lib/constants";
 import {
   ArrowLeft, ExternalLink, Copy, Tag, ShoppingCart, Pencil,
-  X, Plus, Gem, User, AlertCircle, CheckCircle2,
+  X, Plus, Gem, User, AlertCircle, CheckCircle2, Loader2,
 } from "lucide-react";
 import { parseEther } from "viem";
-
-// Mock NFT metadata — in production fetch from tokenURI
-const MOCK_METADATA = {
-  name: "Quantum Ape #1",
-  description: "A quantum-entangled ape from the genesis collection. Each ape exists in a superposition of artistic states until observed.",
-  image: "/placeholder-nft.svg",
-  attributes: [
-    { trait_type: "Background", value: "Quantum Blue" },
-    { trait_type: "Fur", value: "Electric Gold" },
-    { trait_type: "Eyes", value: "Laser" },
-    { trait_type: "Hat", value: "Crown" },
-    { trait_type: "Rarity", value: "Legendary" },
-  ],
-};
 
 export default function NFTDetailPage() {
   const params = useParams();
@@ -44,10 +30,63 @@ export default function NFTDetailPage() {
   const { royaltyBps, royaltyPercent, royaltyReceiver, hasRoyalty } = useRoyaltyInfo(nftAddress, tokenId);
   const { isApproved, approve, isPending: approvalPending, isSuccess: approvalSuccess } = useApproval(nftAddress, userAddress);
 
-  const { buyItem, isPending: buyPending, isSuccess: buySuccess } = useBuyItem();
-  const { listItem, isPending: listPending, isSuccess: listSuccess } = useListItem();
-  const { cancelListing, isPending: cancelPending, isSuccess: cancelSuccess } = useCancelListing();
-  const { updateListing, isPending: updatePending, isSuccess: updateSuccess } = useUpdateListing();
+  const [metadata, setMetadata] = useState<{ name: string; description: string; image: string; attributes?: any[] } | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(true);
+  const [realOwner, setRealOwner] = useState<string | null>(null);
+  const publicClient = usePublicClient();
+
+  useEffect(() => {
+    async function fetchMetadata() {
+      if (!publicClient || !nftAddress || !tokenId) return;
+      setMetadataLoading(true);
+      try {
+        const tokenURI = await publicClient.readContract({
+          address: nftAddress,
+          abi: ERC721_ABI,
+          functionName: "tokenURI",
+          args: [BigInt(tokenId)],
+        }) as string;
+
+        // Fetch actual owner from blockchain
+        try {
+          const owner = await publicClient.readContract({
+            address: nftAddress,
+            abi: ERC721_ABI,
+            functionName: "ownerOf",
+            args: [BigInt(tokenId)],
+          }) as string;
+          setRealOwner(owner);
+        } catch (e) {
+          console.error("Error fetching actual owner:", e);
+        }
+
+        const url = resolveIPFS(tokenURI);
+        const res = await fetch(url);
+        const data = await res.json();
+        setMetadata({
+          name: data.name || `NFT #${tokenId}`,
+          description: data.description || "",
+          image: resolveIPFS(data.image || ""),
+          attributes: data.attributes || [],
+        });
+      } catch (e) {
+        console.error("Error fetching NFT metadata:", e);
+        setMetadata({
+          name: `NFT #${tokenId}`,
+          description: "No description available.",
+          image: "/placeholder-nft.svg",
+        });
+      } finally {
+        setMetadataLoading(false);
+      }
+    }
+    fetchMetadata();
+  }, [publicClient, nftAddress, tokenId]);
+
+  const { buyItem, isPending: buyPending, isSuccess: buySuccess } = useBuyItem(refetchListing);
+  const { listItem, isPending: listPending, isSuccess: listSuccess } = useListItem(refetchListing);
+  const { cancelListing, isPending: cancelPending, isSuccess: cancelSuccess } = useCancelListing(refetchListing);
+  const { updateListing, isPending: updatePending, isSuccess: updateSuccess } = useUpdateListing(refetchListing);
 
   const [listPrice, setListPrice] = useState("");
   const [updatePrice, setUpdatePrice] = useState("");
@@ -56,15 +95,11 @@ export default function NFTDetailPage() {
   const [buyModal, setBuyModal] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const isOwner = userAddress && seller && seller.toLowerCase() === userAddress.toLowerCase();
+  const isOwner = userAddress && (
+    (seller && seller.toLowerCase() === userAddress.toLowerCase()) || 
+    (realOwner && realOwner.toLowerCase() === userAddress.toLowerCase())
+  );
   const canBuy = isListed && !isOwner;
-
-  // Refetch after tx success
-  useEffect(() => {
-    if (buySuccess || listSuccess || cancelSuccess || updateSuccess) {
-      setTimeout(refetchListing, 3000);
-    }
-  }, [buySuccess, listSuccess, cancelSuccess, updateSuccess]);
 
   async function handleBuy() {
     await buyItem(nftAddress, tokenId, price);
@@ -99,6 +134,17 @@ export default function NFTDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  if (metadataLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-10 h-10 text-sky-500 animate-spin mb-4" />
+        <p className="text-cream-500 font-medium">Loading NFT details from blockchain...</p>
+      </div>
+    );
+  }
+
+  const finalMetadata = metadata || { name: `NFT #${tokenId}`, description: "", image: "/placeholder-nft.svg" };
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
       {/* Back */}
@@ -116,8 +162,8 @@ export default function NFTDetailPage() {
           {/* Image */}
           <div className="relative aspect-square rounded-2xl overflow-hidden bg-cream-100 border border-cream-200">
             <Image
-              src={resolveIPFS(MOCK_METADATA.image)}
-              alt={MOCK_METADATA.name}
+              src={resolveIPFS(finalMetadata.image)}
+              alt={finalMetadata.name}
               fill
               className="object-cover"
               unoptimized
@@ -130,17 +176,19 @@ export default function NFTDetailPage() {
           </div>
 
           {/* Traits */}
-          <div className="bg-white rounded-2xl border border-cream-200 p-5">
-            <h3 className="text-sm font-display font-semibold text-cream-700 mb-3">Attributes</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {MOCK_METADATA.attributes.map((attr) => (
-                <div key={attr.trait_type} className="bg-cream-50 rounded-xl p-2.5 border border-cream-100">
-                  <p className="text-xs text-cream-400 font-sans mb-0.5">{attr.trait_type}</p>
-                  <p className="text-sm font-display font-semibold text-cream-800 truncate">{String(attr.value)}</p>
-                </div>
-              ))}
+          {finalMetadata.attributes && finalMetadata.attributes.length > 0 && (
+            <div className="bg-white rounded-2xl border border-cream-200 p-5">
+              <h3 className="text-sm font-display font-semibold text-cream-700 mb-3">Attributes</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {finalMetadata.attributes.map((attr, i) => (
+                  <div key={i} className="bg-cream-50 rounded-xl p-2.5 border border-cream-100">
+                    <p className="text-xs text-cream-400 font-sans mb-0.5">{attr.trait_type}</p>
+                    <p className="text-sm font-display font-semibold text-cream-800 truncate">{String(attr.value)}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* ── Right: Details + Actions ── */}
@@ -149,13 +197,13 @@ export default function NFTDetailPage() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Link href={`/collection/${nftAddress}`} className="text-sm text-sky-500 hover:text-sky-700 font-sans transition-colors">
-                Quantum Apes
+                View Collection
               </Link>
               <span className="text-cream-300">·</span>
               <code className="text-sm font-mono text-cream-400">#{tokenId}</code>
             </div>
-            <h1 className="text-3xl font-display font-bold text-cream-900 mb-2">{MOCK_METADATA.name}</h1>
-            <p className="text-sm text-cream-500 font-sans leading-relaxed">{MOCK_METADATA.description}</p>
+            <h1 className="text-3xl font-display font-bold text-cream-900 mb-2">{finalMetadata.name}</h1>
+            <p className="text-sm text-cream-500 font-sans leading-relaxed">{finalMetadata.description}</p>
           </div>
 
           {/* Seller / Contract info */}
@@ -310,7 +358,7 @@ export default function NFTDetailPage() {
       <Modal open={buyModal} onClose={() => setBuyModal(false)} title="Confirm Purchase">
         <div className="space-y-4">
           <div className="p-3 bg-cream-50 rounded-xl border border-cream-100">
-            <p className="text-sm font-display font-semibold text-cream-900">{MOCK_METADATA.name}</p>
+            <p className="text-sm font-display font-semibold text-cream-900">{finalMetadata.name}</p>
             <p className="text-xs text-cream-400 font-sans mt-0.5">#{tokenId}</p>
           </div>
           <PriceBreakdown priceWei={price} royaltyBps={royaltyBps} />

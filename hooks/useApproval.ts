@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect } from "react";
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { ERC721_ABI, MARKETPLACE_ADDRESS } from "@/lib/constants";
 
@@ -16,6 +17,15 @@ export function useApproval(
 
   const { writeContractAsync, isPending, data: hash } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  const [forceApproved, setForceApproved] = useState(false);
+
+  // Auto-refetch when approval is successful
+  useEffect(() => {
+    if (isSuccess) {
+      setForceApproved(true);
+      refetch();
+    }
+  }, [isSuccess, refetch]);
 
   async function approve() {
     if (!nftAddress) return;
@@ -28,7 +38,7 @@ export function useApproval(
   }
 
   return {
-    isApproved: !!isApproved,
+    isApproved: !!isApproved || forceApproved,
     approve,
     isPending: isPending || isConfirming,
     isSuccess,

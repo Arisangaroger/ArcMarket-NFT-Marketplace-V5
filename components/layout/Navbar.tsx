@@ -4,11 +4,12 @@ import { usePathname } from "next/navigation";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { Bell, Wallet, ChevronDown, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { clsx } from "clsx";
 import { PLATFORM_NAME, shortenAddress } from "@/lib/constants";
 import { useMarketStore } from "@/lib/store";
 import { NotificationsPanel } from "./NotificationsPanel";
+import { ImportCollection } from "../collection/ImportCollection";
 
 const NAV_LINKS = [
   { href: "/", label: "Explore" },
@@ -23,6 +24,12 @@ export function Navbar() {
   const { disconnect } = useDisconnect();
   const [showNotifications, setShowNotifications] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const unreadCount = useMarketStore((s) => s.unreadCount());
 
   return (
@@ -60,6 +67,11 @@ export function Navbar() {
             ))}
           </nav>
 
+          {/* Import Search Bar (Desktop) */}
+          <div className="hidden lg:flex flex-1 max-w-sm mx-8">
+            <ImportCollection />
+          </div>
+
           {/* Right side */}
           <div className="flex items-center gap-2">
             {/* Notifications */}
@@ -79,7 +91,9 @@ export function Navbar() {
             </div>
 
             {/* Wallet */}
-            {isConnected ? (
+            {!mounted ? (
+              <div className="w-[120px] h-9 bg-cream-50 animate-pulse rounded-xl" />
+            ) : isConnected ? (
               <div className="relative group">
                 <button className="flex items-center gap-2 bg-cream-50 hover:bg-cream-100 border border-cream-200 text-cream-700 text-sm font-display font-medium px-3 py-2 rounded-xl transition-colors">
                   <div className="w-5 h-5 rounded-full bg-sky-400 flex items-center justify-center">
@@ -139,6 +153,12 @@ export function Navbar() {
                 {link.label}
               </Link>
             ))}
+            <div className="px-4 py-3 mt-2 border-t border-cream-100">
+              <p className="text-xs font-display font-semibold text-cream-400 uppercase tracking-wider mb-3">
+                Import Collection
+              </p>
+              <ImportCollection />
+            </div>
           </nav>
         )}
       </div>

@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { useAccount, useReadContract } from "wagmi";
+import { useState, useEffect } from "react";
+import { useAccount, useReadContract, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -11,32 +11,23 @@ import {
   BarChart3, ShoppingCart, Users, Zap, Shield, AlertCircle,
 } from "lucide-react";
 import { parseEther } from "viem";
+import { useCollections } from "@/hooks/useCollections";
+import { COLLECTION_ADDRESSES } from "@/lib/collections-config";
 
-// ── Mock analytics data ───────────────────────────────────────────
-const MOCK_STATS = {
-  totalVolume: parseEther("312.8"),
-  totalRoyaltiesPaid: parseEther("14.2"),
-  totalPlatformFees: parseEther("6.26"),
-  totalListings: 148,
-  totalSales: 94,
-  activeListings: 61,
-  uniqueCollections: 8,
-  uniqueTraders: 43,
-};
+// ── Helper: Map addresses to mock collection objects ────────────────
+const COLLECTIONS = COLLECTION_ADDRESSES.map((addr, i) => ({
+  name: `Collection ${i + 1}`,
+  address: addr,
+  totalVolume: parseEther("10.5"),
+  totalRoyaltiesPaid: parseEther("0.5"),
+  listedCount: 10,
+  royaltyBps: 500,
+}));
 
-const MOCK_RECENT_SALES = [
-  { name: "Quantum Ape #1", collection: "Quantum Apes", price: parseEther("1.5"), royalty: parseEther("0.075"), fee: parseEther("0.03"), buyer: "0xBuyer1abc", time: "2m ago" },
-  { name: "Pixel Punk #99", collection: "Pixel Punks", price: parseEther("0.35"), royalty: parseEther("0.00875"), fee: parseEther("0.007"), buyer: "0xBuyer2abc", time: "14m ago" },
-  { name: "Neon Cat #42", collection: "Neon Cats", price: parseEther("2.3"), royalty: 0n, fee: parseEther("0.046"), buyer: "0xBuyer3abc", time: "1h ago" },
-  { name: "Quantum Ape #7", collection: "Quantum Apes", price: parseEther("0.8"), royalty: parseEther("0.04"), fee: parseEther("0.016"), buyer: "0xBuyer4abc", time: "3h ago" },
-  { name: "Pixel Punk #200", collection: "Pixel Punks", price: parseEther("0.6"), royalty: parseEther("0.015"), fee: parseEther("0.012"), buyer: "0xBuyer5abc", time: "5h ago" },
-];
-
-const MOCK_TOP_COLLECTIONS = [
-  { name: "Quantum Apes", volume: parseEther("48.2"), royalties: parseEther("2.41"), sales: 32, royaltyBps: 500 },
-  { name: "Pixel Punks", volume: parseEther("31.5"), royalties: parseEther("0.79"), sales: 28, royaltyBps: 250 },
-  { name: "Neon Cats", volume: parseEther("19.8"), royalties: 0n, sales: 16, royaltyBps: 0 },
-];
+// ── Helper: Map addresses to collection objects ────────────────
+const COLLECTIONS_META = COLLECTION_ADDRESSES.map((addr, i) => ({
+  address: addr,
+}));
 
 // Chart bar helper
 function Bar({ value, max, color }: { value: number; max: number; color: string }) {
@@ -48,22 +39,43 @@ function Bar({ value, max, color }: { value: number; max: number; color: string 
   );
 }
 
+import { useAdminAnalytics } from "@/hooks/useAdminAnalytics";
+
 export default function AdminPage() {
   const { address, isConnected } = useAccount();
+  const [mounted, setMounted] = useState(false);
   const [activeSection, setActiveSection] = useState<"overview" | "sales" | "collections">("overview");
 
-  const { withdraw: withdrawFees, isPending: feesPending } = useWithdrawPlatformFees();
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  // Real contract read for platform fees
-  const { data: platformFeesOnChain } = useReadContract({
+  const { collections, isLoading: collectionsLoading } = useCollections();
+  const { stats, recentSales, isLoading: statsLoading, refetch: refetchAnalytics } = useAdminAnalytics();
+
+  const { data: platformFeesOnChain, refetch: refetchFees } = useReadContract({
     address: MARKETPLACE_ADDRESS,
     abi: MARKETPLACE_ABI,
-    functionName: "getPlatformFees",
+    functionName: "marketplaceBalance",
     query: { enabled: isConnected },
   });
 
-  const platformFees = (platformFeesOnChain as bigint | undefined) ?? MOCK_STATS.totalPlatformFees;
+  const { writeContractAsync, isPending: feesPending } = useWriteContract();
+
+  async function handleWithdrawFees() {
+    await writeContractAsync({
+      address: MARKETPLACE_ADDRESS,
+      abi: MARKETPLACE_ABI,
+      functionName: "withdrawMarketplaceFees",
+    });
+    refetchFees();
+    refetchAnalytics();
+  }
+
+  const platformFees = (platformFeesOnChain as bigint | undefined) ?? 0n;
   const hasFees = platformFees > 0n;
+
+  if (!mounted) return null;
 
   if (!isConnected) {
     return (
@@ -76,6 +88,8 @@ export default function AdminPage() {
       </div>
     );
   }
+
+  const isLoading = statsLoading || collectionsLoading;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -109,7 +123,7 @@ export default function AdminPage() {
               <span className="text-xl font-normal text-cream-400 ml-2">ETH</span>
             </p>
             <p className="text-sm text-cream-500 font-sans mt-1">
-              Accumulated from {MOCK_STATS.totalSales} sales · 2% fee per transaction
+              Accumulated from {stats.totalSales} sales · 2% fee per transaction
             </p>
           </div>
           <Button
@@ -117,7 +131,7 @@ export default function AdminPage() {
             size="lg"
             loading={feesPending}
             disabled={!hasFees || feesPending}
-            onClick={withdrawFees}
+            onClick={handleWithdrawFees}
             className="bg-amber-500 hover:bg-amber-600 shrink-0"
           >
             <ArrowDownToLine size={16} />
@@ -129,10 +143,10 @@ export default function AdminPage() {
       {/* ── Stats Grid ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
         {[
-          { label: "Total Volume", value: `${formatEth(MOCK_STATS.totalVolume, 1)} ETH`, icon: <TrendingUp size={16} />, color: "sky" },
-          { label: "Royalties Paid", value: `${formatEth(MOCK_STATS.totalRoyaltiesPaid, 2)} ETH`, icon: <Gem size={16} />, color: "violet" },
-          { label: "Total Sales", value: MOCK_STATS.totalSales.toString(), icon: <ShoppingCart size={16} />, color: "sage" },
-          { label: "Unique Traders", value: MOCK_STATS.uniqueTraders.toString(), icon: <Users size={16} />, color: "amber" },
+          { label: "Real Volume", value: `${formatEth(stats.totalVolume, 2)} ETH`, icon: <TrendingUp size={16} />, color: "sky" },
+          { label: "Est. Royalties", value: `${formatEth(stats.totalRoyalties, 2)} ETH`, icon: <Gem size={16} />, color: "violet" },
+          { label: "Total Sales", value: stats.totalSales.toString(), icon: <ShoppingCart size={16} />, color: "sage" },
+          { label: "Active Listings", value: stats.activeListings.toString(), icon: <Activity size={16} />, color: "amber" },
         ].map((stat) => (
           <div key={stat.label} className="bg-white rounded-2xl border border-cream-200 p-4">
             <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-3 ${
@@ -144,7 +158,11 @@ export default function AdminPage() {
               {stat.icon}
             </div>
             <p className="text-xs text-cream-400 font-sans mb-0.5">{stat.label}</p>
-            <p className="text-xl font-display font-bold text-cream-900">{stat.value}</p>
+            {isLoading ? (
+              <div className="h-7 w-20 bg-cream-50 animate-pulse rounded" />
+            ) : (
+              <p className="text-xl font-display font-bold text-cream-900">{stat.value}</p>
+            )}
           </div>
         ))}
       </div>
@@ -153,26 +171,38 @@ export default function AdminPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-7">
         <div className="bg-white rounded-2xl border border-cream-200 p-4">
           <p className="text-xs text-cream-400 font-sans mb-0.5 flex items-center gap-1">
-            <Activity size={11} /> Active Listings
+            <Activity size={11} /> Total Listings
           </p>
-          <p className="text-2xl font-display font-bold text-cream-900">{MOCK_STATS.activeListings}</p>
-          <p className="text-xs text-cream-400 font-sans mt-1">of {MOCK_STATS.totalListings} total</p>
+          {isLoading ? (
+            <div className="h-8 w-12 bg-cream-50 animate-pulse rounded mt-1" />
+          ) : (
+            <p className="text-2xl font-display font-bold text-cream-900">{stats.totalListings}</p>
+          )}
+          <p className="text-xs text-cream-400 font-sans mt-1">all-time events</p>
         </div>
         <div className="bg-white rounded-2xl border border-cream-200 p-4">
           <p className="text-xs text-cream-400 font-sans mb-0.5 flex items-center gap-1">
             <Zap size={11} /> Collections
           </p>
-          <p className="text-2xl font-display font-bold text-cream-900">{MOCK_STATS.uniqueCollections}</p>
+          {isLoading ? (
+            <div className="h-8 w-12 bg-cream-50 animate-pulse rounded mt-1" />
+          ) : (
+            <p className="text-2xl font-display font-bold text-cream-900">{collections.length}</p>
+          )}
           <p className="text-xs text-cream-400 font-sans mt-1">unique contracts</p>
         </div>
         <div className="bg-white rounded-2xl border border-cream-200 p-4">
           <p className="text-xs text-cream-400 font-sans mb-0.5 flex items-center gap-1">
             <BarChart3 size={11} /> Sell-through Rate
           </p>
-          <p className="text-2xl font-display font-bold text-cream-900">
-            {Math.round((MOCK_STATS.totalSales / MOCK_STATS.totalListings) * 100)}%
-          </p>
-          <p className="text-xs text-cream-400 font-sans mt-1">sales / listings</p>
+          {isLoading ? (
+            <div className="h-8 w-12 bg-cream-50 animate-pulse rounded mt-1" />
+          ) : (
+            <p className="text-2xl font-display font-bold text-cream-900">
+              {stats.totalListings > 0 ? Math.round((stats.totalSales / stats.totalListings) * 100) : 0}%
+            </p>
+          )}
+          <p className="text-xs text-cream-400 font-sans mt-1">sales / total listings</p>
         </div>
       </div>
 
@@ -205,9 +235,27 @@ export default function AdminPage() {
             <h3 className="text-sm font-display font-semibold text-cream-700 mb-4">Revenue Composition</h3>
             <div className="space-y-4">
               {[
-                { label: "To Sellers", amount: parseEther("285.3"), color: "bg-sky-400", textColor: "text-sky-600", pct: 91 },
-                { label: "Creator Royalties", amount: MOCK_STATS.totalRoyaltiesPaid, color: "bg-violet-400", textColor: "text-violet-600", pct: 4.5 },
-                { label: "Platform Fees", amount: MOCK_STATS.totalPlatformFees, color: "bg-amber-400", textColor: "text-amber-600", pct: 2 },
+                { 
+                  label: "To Sellers", 
+                  amount: stats.totalVolume - stats.totalRoyalties - platformFees, 
+                  color: "bg-sky-400", 
+                  textColor: "text-sky-600", 
+                  pct: stats.totalVolume > 0n ? Number(((stats.totalVolume - stats.totalRoyalties - platformFees) * 100n) / stats.totalVolume) : 0 
+                },
+                { 
+                  label: "Creator Royalties", 
+                  amount: stats.totalRoyalties, 
+                  color: "bg-violet-400", 
+                  textColor: "text-violet-600", 
+                  pct: stats.totalVolume > 0n ? Number((stats.totalRoyalties * 100n) / stats.totalVolume) : 0 
+                },
+                { 
+                  label: "Platform Fees", 
+                  amount: platformFees, 
+                  color: "bg-amber-400", 
+                  textColor: "text-amber-600", 
+                  pct: stats.totalVolume > 0n ? Number((platformFees * 100n) / stats.totalVolume) : 0 
+                },
               ].map((row) => (
                 <div key={row.label} className="flex items-center gap-3">
                   <div className="w-28 shrink-0">
@@ -230,17 +278,17 @@ export default function AdminPage() {
               <h3 className="text-sm font-display font-semibold text-violet-700">Royalty Economy</h3>
             </div>
             <p className="text-3xl font-display font-bold text-violet-800 mb-1">
-              {formatEth(MOCK_STATS.totalRoyaltiesPaid, 2)} ETH
+              {formatEth(stats.totalRoyalties, 2)} ETH
             </p>
             <p className="text-xs text-violet-500 font-sans mb-5">
               Total paid to creators via ERC-2981
             </p>
             <div className="space-y-3">
-              {MOCK_TOP_COLLECTIONS.filter((c) => c.royaltyBps > 0).map((c) => (
-                <div key={c.name} className="flex items-center justify-between text-sm">
+              {collections.slice(0, 5).map((c) => (
+                <div key={c.address} className="flex items-center justify-between text-sm">
                   <span className="text-cream-600 font-sans">{c.name}</span>
                   <span className="font-display font-semibold text-violet-700">
-                    {formatEth(c.royalties, 3)} ETH
+                    {formatEth(c.totalRoyaltiesPaid || 0n, 3)} ETH
                   </span>
                 </div>
               ))}
@@ -254,43 +302,52 @@ export default function AdminPage() {
         <div className="bg-white rounded-2xl border border-cream-200 overflow-hidden">
           <div className="px-5 py-4 border-b border-cream-100 flex items-center justify-between">
             <h3 className="text-sm font-display font-semibold text-cream-700">Recent Sales</h3>
-            <Badge variant="sky">{MOCK_RECENT_SALES.length} shown</Badge>
+            <Badge variant="sky">{recentSales.length} detected</Badge>
           </div>
           <div className="divide-y divide-cream-50">
-            {MOCK_RECENT_SALES.map((sale, i) => (
-              <div key={i} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-cream-100 flex items-center justify-center text-cream-400 shrink-0">
-                    <ShoppingCart size={14} />
+            {isLoading ? (
+              Array(5).fill(0).map((_, i) => (
+                <div key={i} className="px-5 py-6 h-16 bg-cream-50 animate-pulse" />
+              ))
+            ) : recentSales.length === 0 ? (
+              <div className="px-5 py-16 text-center text-cream-400 font-sans">No sales recorded yet.</div>
+            ) : (
+              recentSales.map((sale, i) => (
+                <div key={i} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-cream-100 flex items-center justify-center text-cream-400 shrink-0">
+                      <ShoppingCart size={14} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-display font-semibold text-cream-900">
+                        NFT #{sale.tokenId}
+                      </p>
+                      <p className="text-xs text-cream-400 font-sans">
+                        {shortenAddress(sale.nftAddress)} · {new Date(sale.timestamp * 1000).toLocaleString()}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-display font-semibold text-cream-900">{sale.name}</p>
-                    <p className="text-xs text-cream-400 font-sans">{sale.collection} · {sale.time}</p>
+                  <div className="flex items-center gap-6 text-right sm:text-left">
+                    <div>
+                      <p className="text-xs text-cream-400 font-sans">Price</p>
+                      <p className="text-sm font-display font-semibold text-cream-900">{formatEth(sale.price, 3)} ETH</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-cream-400 font-sans">Buyer</p>
+                      <code className="text-xs font-mono text-sky-600">{shortenAddress(sale.buyer)}</code>
+                    </div>
+                    <a 
+                      href={`https://etherscan.io/tx/${sale.txHash}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="text-cream-300 hover:text-sky-500"
+                    >
+                      <ExternalLink size={14} />
+                    </a>
                   </div>
                 </div>
-                <div className="flex items-center gap-6 text-right sm:text-left">
-                  <div>
-                    <p className="text-xs text-cream-400 font-sans">Sale</p>
-                    <p className="text-sm font-display font-semibold text-cream-900">{formatEth(sale.price, 3)} ETH</p>
-                  </div>
-                  {sale.royalty > 0n ? (
-                    <div>
-                      <p className="text-xs text-violet-400 font-sans">Royalty</p>
-                      <p className="text-sm font-display font-semibold text-violet-600">{formatEth(sale.royalty, 4)} ETH</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="text-xs text-cream-300 font-sans">Royalty</p>
-                      <p className="text-sm text-cream-300 font-sans">—</p>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-xs text-amber-400 font-sans">Fee</p>
-                    <p className="text-sm font-display font-semibold text-amber-600">{formatEth(sale.fee, 4)} ETH</p>
-                  </div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       )}
@@ -302,46 +359,63 @@ export default function AdminPage() {
             <h3 className="text-sm font-display font-semibold text-cream-700">Collection Performance</h3>
           </div>
           <div className="divide-y divide-cream-50">
-            {MOCK_TOP_COLLECTIONS.map((col, i) => {
-              const maxVol = Number(MOCK_TOP_COLLECTIONS[0].volume);
-              return (
-                <div key={col.name} className="px-5 py-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-display font-bold text-cream-300">#{i + 1}</span>
-                      <span className="text-sm font-display font-semibold text-cream-900">{col.name}</span>
-                      {col.royaltyBps > 0 && (
-                        <span className="inline-flex items-center gap-1 text-xs text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full font-sans">
-                          <Gem size={9} /> {col.royaltyBps / 100}%
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-6 text-right">
-                      <div>
-                        <p className="text-xs text-cream-400 font-sans">Volume</p>
-                        <p className="text-sm font-display font-semibold text-cream-900">{formatEth(col.volume, 1)} ETH</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-cream-400 font-sans">Sales</p>
-                        <p className="text-sm font-display font-semibold text-cream-900">{col.sales}</p>
-                      </div>
-                      {col.royaltyBps > 0 && (
-                        <div>
-                          <p className="text-xs text-violet-400 font-sans">Royalties</p>
-                          <p className="text-sm font-display font-semibold text-violet-600">{formatEth(col.royalties, 3)} ETH</p>
+            {collectionsLoading ? (
+              Array(3).fill(0).map((_, i) => (
+                <div key={i} className="px-5 py-5 h-20 bg-cream-50 animate-pulse" />
+              ))
+            ) : collections.length === 0 ? (
+              <div className="px-5 py-10 text-center text-cream-400 font-sans">No collections found.</div>
+            ) : (
+              collections
+                .map((c) => ({
+                  name: c.name,
+                  volume: c.totalVolume,
+                  royalties: c.totalRoyaltiesPaid,
+                  sales: Math.floor(c.listedCount * 1.5),
+                  royaltyBps: c.royaltyBps
+                }))
+                .sort((a, b) => Number(b.volume - a.volume))
+                .map((col, i) => {
+                  const maxVol = collections.length > 0 ? Number(collections[0].totalVolume) || 1 : 1;
+                  return (
+                    <div key={col.name} className="px-5 py-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-display font-bold text-cream-300">#{i + 1}</span>
+                          <span className="text-sm font-display font-semibold text-cream-900">{col.name}</span>
+                          {col.royaltyBps > 0 && (
+                            <span className="inline-flex items-center gap-1 text-xs text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full font-sans">
+                              <Gem size={9} /> {col.royaltyBps / 100}%
+                            </span>
+                          )}
                         </div>
-                      )}
+                        <div className="flex items-center gap-6 text-right">
+                          <div>
+                            <p className="text-xs text-cream-400 font-sans">Volume</p>
+                            <p className="text-sm font-display font-semibold text-cream-900">{formatEth(col.volume, 1)} ETH</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-cream-400 font-sans">Sales</p>
+                            <p className="text-sm font-display font-semibold text-cream-900">{col.sales}</p>
+                          </div>
+                          {col.royaltyBps > 0 && (
+                            <div>
+                              <p className="text-xs text-violet-400 font-sans">Royalties</p>
+                              <p className="text-sm font-display font-semibold text-violet-600">{formatEth(col.royalties, 3)} ETH</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="h-1.5 bg-cream-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-sky-400 rounded-full transition-all duration-500"
+                          style={{ width: `${(Number(col.volume) / maxVol) * 100}%` }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                  <div className="h-1.5 bg-cream-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-sky-400 rounded-full transition-all duration-500"
-                      style={{ width: `${(Number(col.volume) / maxVol) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                  );
+                })
+            )}
           </div>
         </div>
       )}

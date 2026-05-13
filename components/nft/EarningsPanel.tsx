@@ -10,20 +10,18 @@ export function EarningsPanel() {
   const { address } = useAccount();
   const { proceeds, refetch: refetchProceeds } = useProceeds(address);
   const { royaltyProceeds, refetch: refetchRoyalties } = useRoyaltyProceeds(address);
-  const { withdraw: withdrawSales, isPending: salesPending } = useWithdrawProceeds();
-  const { withdraw: withdrawRoyalties, isPending: royaltiesPending } = useWithdrawRoyalties();
+  const { withdraw: withdrawSales, isPending: salesPending } = useWithdrawProceeds(refetchProceeds);
+  const { withdraw: withdrawRoyalties, isPending: royaltiesPending } = useWithdrawRoyalties(refetchRoyalties);
 
   const hasProceeds = proceeds > 0n;
   const hasRoyalties = royaltyProceeds > 0n;
 
   async function handleWithdrawSales() {
     await withdrawSales();
-    setTimeout(refetchProceeds, 3000);
   }
 
   async function handleWithdrawRoyalties() {
     await withdrawRoyalties();
-    setTimeout(refetchRoyalties, 3000);
   }
 
   return (

@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
+import { Zap, Gem, TrendingUp, Flame, Search } from "lucide-react";
 import { NFTCard } from "@/components/nft/NFTCard";
 import { CollectionCard } from "@/components/nft/CollectionCard";
 import { Modal } from "@/components/ui/Modal";
@@ -9,133 +10,29 @@ import { NFTCardSkeleton } from "@/components/ui/Skeleton";
 import { useBuyItem } from "@/hooks/useListings";
 import { useMarketplaceEvents } from "@/hooks/useEvents";
 import { PLATFORM_FEE_BPS, formatEth } from "@/lib/constants";
-import { NFTListing, Collection } from "@/lib/types";
-import { Flame, Gem, TrendingUp, Zap, Search, SlidersHorizontal } from "lucide-react";
 import { parseEther } from "viem";
-
-// ── Mock data (replace with real contract reads / subgraph queries) ───────────
-const MOCK_LISTINGS: NFTListing[] = [
-  {
-    nftAddress: "0xCollection1",
-    tokenId: "1",
-    price: parseEther("1.5"),
-    seller: "0xSeller1abcdef1234567890",
-    collectionName: "Quantum Apes",
-    hasRoyalty: true,
-    royaltyBps: 500,
-    royaltyReceiver: "0xCreator1",
-    metadata: { name: "Quantum Ape #1", description: "A quantum ape", image: "/placeholder-nft.svg", attributes: [] },
-  },
-  {
-    nftAddress: "0xCollection1",
-    tokenId: "7",
-    price: parseEther("0.8"),
-    seller: "0xSeller2abcdef1234567890",
-    collectionName: "Quantum Apes",
-    hasRoyalty: true,
-    royaltyBps: 500,
-    royaltyReceiver: "0xCreator1",
-    metadata: { name: "Quantum Ape #7", description: "A quantum ape", image: "/placeholder-nft.svg", attributes: [] },
-  },
-  {
-    nftAddress: "0xCollection2",
-    tokenId: "42",
-    price: parseEther("2.3"),
-    seller: "0xSeller3abcdef1234567890",
-    collectionName: "Neon Cats",
-    hasRoyalty: false,
-    royaltyBps: 0,
-    metadata: { name: "Neon Cat #42", description: "A neon cat", image: "/placeholder-nft.svg", attributes: [] },
-  },
-  {
-    nftAddress: "0xCollection3",
-    tokenId: "99",
-    price: parseEther("0.35"),
-    seller: "0xSeller4abcdef1234567890",
-    collectionName: "Pixel Punks",
-    hasRoyalty: true,
-    royaltyBps: 250,
-    royaltyReceiver: "0xCreator3",
-    metadata: { name: "Pixel Punk #99", description: "A pixel punk", image: "/placeholder-nft.svg", attributes: [] },
-  },
-  {
-    nftAddress: "0xCollection2",
-    tokenId: "5",
-    price: parseEther("1.1"),
-    seller: "0xSeller5abcdef1234567890",
-    collectionName: "Neon Cats",
-    hasRoyalty: false,
-    royaltyBps: 0,
-    metadata: { name: "Neon Cat #5", description: "A neon cat", image: "/placeholder-nft.svg", attributes: [] },
-  },
-  {
-    nftAddress: "0xCollection3",
-    tokenId: "200",
-    price: parseEther("0.6"),
-    seller: "0xSeller6abcdef1234567890",
-    collectionName: "Pixel Punks",
-    hasRoyalty: true,
-    royaltyBps: 250,
-    royaltyReceiver: "0xCreator3",
-    metadata: { name: "Pixel Punk #200", description: "A pixel punk", image: "/placeholder-nft.svg", attributes: [] },
-  },
-];
-
-const MOCK_COLLECTIONS: Collection[] = [
-  {
-    address: "0xCollection1",
-    name: "Quantum Apes",
-    symbol: "QA",
-    creatorAddress: "0xCreator1abcdef",
-    royaltyBps: 500,
-    royaltyReceiver: "0xCreator1",
-    hasRoyalty: true,
-    totalVolume: parseEther("48.2"),
-    totalRoyaltiesPaid: parseEther("2.41"),
-    floorPrice: parseEther("0.8"),
-    listedCount: 24,
-    description: "A collection of quantum-entangled ape portraits.",
-  },
-  {
-    address: "0xCollection3",
-    name: "Pixel Punks",
-    symbol: "PP",
-    creatorAddress: "0xCreator3abcdef",
-    royaltyBps: 250,
-    royaltyReceiver: "0xCreator3",
-    hasRoyalty: true,
-    totalVolume: parseEther("31.5"),
-    totalRoyaltiesPaid: parseEther("0.79"),
-    floorPrice: parseEther("0.35"),
-    listedCount: 61,
-    description: "10,000 unique pixel punks on-chain.",
-  },
-  {
-    address: "0xCollection2",
-    name: "Neon Cats",
-    symbol: "NC",
-    creatorAddress: "0xCreator2abcdef",
-    royaltyBps: 0,
-    royaltyReceiver: "0x0",
-    hasRoyalty: false,
-    totalVolume: parseEther("19.8"),
-    totalRoyaltiesPaid: 0n,
-    floorPrice: parseEther("1.1"),
-    listedCount: 11,
-    description: "Cyberpunk cats roaming neon streets.",
-  },
-];
+import { useCollections } from "@/hooks/useCollections";
+import { useMarketplaceState } from "@/hooks/useMarketplaceState";
+import { NFTListing } from "@/lib/types";
 
 export default function HomePage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "royalty" | "no-royalty">("all");
   const [buyModal, setBuyModal] = useState<NFTListing | null>(null);
-  const { buyItem, isPending } = useBuyItem();
+  const { collections, isLoading: collectionsLoading, refetch: refetchCollections } = useCollections();
+  const { listings: allListings, isLoading: listingsLoading, refetch: refetchMarketplace } = useMarketplaceState();
+
+  const handleRefresh = useCallback(() => {
+    refetchCollections();
+    refetchMarketplace();
+  }, [refetchCollections, refetchMarketplace]);
+
+  const { buyItem, isPending } = useBuyItem(handleRefresh);
 
   // Listen to real events
   useMarketplaceEvents();
 
-  const filtered = MOCK_LISTINGS.filter((l) => {
+  const filtered = allListings.filter((l) => {
     const matchSearch =
       !search ||
       l.metadata?.name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -148,7 +45,8 @@ export default function HomePage() {
     return matchSearch && matchFilter;
   });
 
-  const topRoyaltyCollections = MOCK_COLLECTIONS.filter((c) => c.hasRoyalty)
+
+  const topRoyaltyCollections = collections.filter((c) => c.hasRoyalty)
     .sort((a, b) => Number(b.totalRoyaltiesPaid - a.totalRoyaltiesPaid));
 
   async function handleBuy() {
@@ -191,9 +89,15 @@ export default function HomePage() {
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {topRoyaltyCollections.map((c, i) => (
-            <CollectionCard key={c.address} collection={c} rank={i + 1} />
-          ))}
+          {collectionsLoading ? (
+            Array(3).fill(0).map((_, i) => (
+              <div key={i} className="h-32 bg-cream-50 animate-pulse rounded-2xl border border-cream-100" />
+            ))
+          ) : (
+            topRoyaltyCollections.map((c, i) => (
+              <CollectionCard key={c.address} collection={c} rank={i + 1} />
+            ))
+          )}
         </div>
       </section>
 
@@ -204,9 +108,15 @@ export default function HomePage() {
           <h2 className="text-lg font-display font-bold text-cream-900">All Collections</h2>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {MOCK_COLLECTIONS.map((c) => (
-            <CollectionCard key={c.address} collection={c} />
-          ))}
+          {collectionsLoading ? (
+            Array(3).fill(0).map((_, i) => (
+              <div key={i} className="h-32 bg-cream-50 animate-pulse rounded-2xl border border-cream-100" />
+            ))
+          ) : (
+            collections.map((c) => (
+              <CollectionCard key={c.address} collection={c} />
+            ))
+          )}
         </div>
       </section>
 
@@ -248,19 +158,23 @@ export default function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-          {filtered.map((listing) => (
-            <NFTCard
-              key={`${listing.nftAddress}-${listing.tokenId}`}
-              listing={listing}
-              onQuickBuy={(l) => setBuyModal(l)}
-            />
-          ))}
-          {filtered.length === 0 && (
+          {listingsLoading ? (
+            Array(8).fill(0).map((_, i) => <NFTCardSkeleton key={i} />)
+          ) : filtered.length > 0 ? (
+            filtered.map((listing) => (
+              <NFTCard
+                key={`${listing.nftAddress}-${listing.tokenId}`}
+                listing={listing}
+                onQuickBuy={(l) => setBuyModal(l)}
+              />
+            ))
+          ) : (
             <div className="col-span-full text-center py-16">
               <p className="text-cream-400 font-sans">No listings found.</p>
             </div>
           )}
         </div>
+
       </section>
 
       {/* ── Buy Confirmation Modal ── */}

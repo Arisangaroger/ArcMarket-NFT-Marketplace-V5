@@ -3,18 +3,20 @@ import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 
 import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS } from "@/lib/constants";
 import { useMarketStore } from "@/lib/store";
 
+import { useEffect } from "react";
+
 export function useProceeds(address: `0x${string}` | undefined) {
   const { data, refetch } = useReadContract({
     address: MARKETPLACE_ADDRESS,
     abi: MARKETPLACE_ABI,
-    functionName: "getProceeds",
+    functionName: "proceeds",
     args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
   return { proceeds: (data as bigint | undefined) ?? 0n, refetch };
 }
 
-export function useWithdrawProceeds() {
+export function useWithdrawProceeds(onSuccess?: () => void) {
   const { writeContractAsync, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { addNotification, setActiveTx, resetTx } = useMarketStore();
@@ -36,10 +38,17 @@ export function useWithdrawProceeds() {
     }
   }
 
+  useEffect(() => {
+    if (isSuccess && onSuccess) {
+      onSuccess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
+
   return { withdraw, isPending: isPending || isConfirming, isSuccess };
 }
 
-export function useWithdrawRoyalties() {
+export function useWithdrawRoyalties(onSuccess?: () => void) {
   const { writeContractAsync, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { addNotification, setActiveTx, resetTx } = useMarketStore();
@@ -61,10 +70,17 @@ export function useWithdrawRoyalties() {
     }
   }
 
+  useEffect(() => {
+    if (isSuccess && onSuccess) {
+      onSuccess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
+
   return { withdraw, isPending: isPending || isConfirming, isSuccess };
 }
 
-export function useWithdrawPlatformFees() {
+export function useWithdrawPlatformFees(onSuccess?: () => void) {
   const { writeContractAsync, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { setActiveTx, resetTx } = useMarketStore();
@@ -75,7 +91,7 @@ export function useWithdrawPlatformFees() {
       const h = await writeContractAsync({
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
-        functionName: "withdrawPlatformFees",
+        functionName: "withdrawMarketplaceFees",
       });
       setActiveTx({ status: "confirming", message: "Confirming…", txHash: h });
     } catch (e: unknown) {
@@ -84,6 +100,13 @@ export function useWithdrawPlatformFees() {
       setTimeout(resetTx, 3000);
     }
   }
+
+  useEffect(() => {
+    if (isSuccess && onSuccess) {
+      onSuccess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
 
   return { withdraw, isPending: isPending || isConfirming, isSuccess };
 }

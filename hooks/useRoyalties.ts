@@ -32,7 +32,7 @@ export function useRoyaltyProceeds(address: `0x${string}` | undefined) {
   const { data, refetch } = useReadContract({
     address: MARKETPLACE_ADDRESS,
     abi: MARKETPLACE_ABI,
-    functionName: "getRoyaltyProceeds",
+    functionName: "royalties",
     args: address ? [address] : undefined,
     query: { enabled: !!address },
   });

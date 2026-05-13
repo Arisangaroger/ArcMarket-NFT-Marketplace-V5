@@ -4,25 +4,27 @@ import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS } from "@/lib/constants";
 import { useMarketStore } from "@/lib/store";
 import { parseEther } from "viem";
 
+import { useEffect } from "react";
+
 export function useListing(nftAddress: `0x${string}` | undefined, tokenId: string) {
   const { data, refetch } = useReadContract({
     address: MARKETPLACE_ADDRESS,
     abi: MARKETPLACE_ABI,
-    functionName: "getListing",
+    functionName: "listings",
     args: nftAddress && tokenId ? [nftAddress, BigInt(tokenId)] : undefined,
     query: { enabled: !!nftAddress && !!tokenId },
   });
 
-  const listing = data as [bigint, string] | undefined;
+  const listing = data as [string, bigint, boolean] | undefined;
   return {
-    price: listing?.[0] ?? 0n,
-    seller: listing?.[1] ?? "",
-    isListed: !!listing && listing[0] > 0n,
+    seller: listing?.[0] ?? "",
+    price: listing?.[1] ?? 0n,
+    isListed: listing?.[2] ?? false,
     refetch,
   };
 }
 
-export function useListItem() {
+export function useListItem(onSuccess?: () => void) {
   const { writeContractAsync, isPending, data: hash } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { addNotification, setActiveTx, resetTx } = useMarketStore();
@@ -45,10 +47,17 @@ export function useListItem() {
     }
   }
 
+  useEffect(() => {
+    if (isSuccess && onSuccess) {
+      onSuccess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
+
   return { listItem, isPending: isPending || isConfirming, isSuccess };
 }
 
-export function useBuyItem() {
+export function useBuyItem(onSuccess?: () => void) {
   const { writeContractAsync, isPending, data: hash } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { addNotification, setActiveTx, resetTx } = useMarketStore();
@@ -72,10 +81,17 @@ export function useBuyItem() {
     }
   }
 
+  useEffect(() => {
+    if (isSuccess && onSuccess) {
+      onSuccess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
+
   return { buyItem, isPending: isPending || isConfirming, isSuccess };
 }
 
-export function useCancelListing() {
+export function useCancelListing(onSuccess?: () => void) {
   const { writeContractAsync, isPending, data: hash } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { setActiveTx, resetTx } = useMarketStore();
@@ -97,10 +113,17 @@ export function useCancelListing() {
     }
   }
 
+  useEffect(() => {
+    if (isSuccess && onSuccess) {
+      onSuccess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
+
   return { cancelListing, isPending: isPending || isConfirming, isSuccess };
 }
 
-export function useUpdateListing() {
+export function useUpdateListing(onSuccess?: () => void) {
   const { writeContractAsync, isPending, data: hash } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
   const { setActiveTx, resetTx } = useMarketStore();
@@ -121,6 +144,13 @@ export function useUpdateListing() {
       setTimeout(resetTx, 3000);
     }
   }
+
+  useEffect(() => {
+    if (isSuccess && onSuccess) {
+      onSuccess();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess]);
 
   return { updateListing, isPending: isPending || isConfirming, isSuccess };
 }

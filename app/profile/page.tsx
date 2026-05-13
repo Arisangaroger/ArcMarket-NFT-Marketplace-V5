@@ -9,31 +9,23 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { PriceBreakdown } from "@/components/nft/PriceBreakdown";
-import { useUpdateListing, useCancelListing, useBuyItem } from "@/hooks/useListings";
-import { shortenAddress, formatEth } from "@/lib/constants";
+import { useCollections, useUserCollectionNFTs } from "@/hooks/useCollections";
+import { useEarnings } from "@/hooks/useEarnings";
+import { useUpdateListing, useCancelListing } from "@/hooks/useListings";
+import { useMarketplaceState } from "@/hooks/useMarketplaceState";
+import { shortenAddress, formatEth, ERC721_ABI, resolveIPFS, COLLECTION_ABI } from "@/lib/constants";
+import { COLLECTION_ADDRESSES } from "@/lib/collections-config";
 import { NFTListing } from "@/lib/types";
 import {
   Wallet, Image as ImageIcon, Tag, DollarSign,
-  Pencil, X, ExternalLink, Copy, Gem,
+  Pencil, X, ExternalLink, Copy, Gem, Loader2, TrendingUp, Zap
 } from "lucide-react";
 import { parseEther } from "viem";
 import { clsx } from "clsx";
+import { usePublicClient } from "wagmi";
+import { useEffect, useCallback } from "react";
 
 type Tab = "nfts" | "listings" | "earnings";
-
-// ── Mock data ─────────────────────────────────────────────────────
-const MOCK_MY_NFTS: NFTListing[] = [
-  { nftAddress: "0xCol1", tokenId: "3", price: 0n, seller: "0xMe", collectionName: "Quantum Apes", hasRoyalty: true, royaltyBps: 500, metadata: { name: "Quantum Ape #3", description: "", image: "/placeholder-nft.svg" } },
-  { nftAddress: "0xCol1", tokenId: "14", price: 0n, seller: "0xMe", collectionName: "Quantum Apes", hasRoyalty: true, royaltyBps: 500, metadata: { name: "Quantum Ape #14", description: "", image: "/placeholder-nft.svg" } },
-  { nftAddress: "0xCol2", tokenId: "77", price: 0n, seller: "0xMe", collectionName: "Neon Cats", hasRoyalty: false, royaltyBps: 0, metadata: { name: "Neon Cat #77", description: "", image: "/placeholder-nft.svg" } },
-  { nftAddress: "0xCol3", tokenId: "5", price: 0n, seller: "0xMe", collectionName: "Pixel Punks", hasRoyalty: true, royaltyBps: 250, metadata: { name: "Pixel Punk #5", description: "", image: "/placeholder-nft.svg" } },
-];
-
-const MOCK_MY_LISTINGS: NFTListing[] = [
-  { nftAddress: "0xCol1", tokenId: "7", price: parseEther("1.5"), seller: "0xMe", collectionName: "Quantum Apes", hasRoyalty: true, royaltyBps: 500, metadata: { name: "Quantum Ape #7", description: "", image: "/placeholder-nft.svg" } },
-  { nftAddress: "0xCol3", tokenId: "99", price: parseEther("0.35"), seller: "0xMe", collectionName: "Pixel Punks", hasRoyalty: true, royaltyBps: 250, metadata: { name: "Pixel Punk #99", description: "", image: "/placeholder-nft.svg" } },
-  { nftAddress: "0xCol2", tokenId: "21", price: parseEther("2.0"), seller: "0xMe", collectionName: "Neon Cats", hasRoyalty: false, royaltyBps: 0, metadata: { name: "Neon Cat #21", description: "", image: "/placeholder-nft.svg" } },
-];
 
 // Group NFTs by collection
 function groupByCollection(nfts: NFTListing[]) {
@@ -47,15 +39,124 @@ function groupByCollection(nfts: NFTListing[]) {
 
 export default function ProfilePage() {
   const { address, isConnected } = useAccount();
+  const [mounted, setMounted] = useState(false);
+  // Earnings & Withdrawals
+  const { balances, actions, isWithdrawing, withdrawType, isOwner } = useEarnings();
+
   const [tab, setTab] = useState<Tab>("nfts");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const [editListing, setEditListing] = useState<NFTListing | null>(null);
   const [newPrice, setNewPrice] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const { updateListing, isPending: updatePending } = useUpdateListing();
-  const { cancelListing, isPending: cancelPending } = useCancelListing();
+  const [myOwnedNfts, setMyOwnedNfts] = useState<NFTListing[]>([]);
+  const [isLoadingNfts, setIsLoadingNfts] = useState(false);
 
-  const grouped = groupByCollection(MOCK_MY_NFTS);
+  const { listings: allListings, isLoading: isLoadingListings, refetch: refetchMarketplace } = useMarketplaceState();
+  const publicClient = usePublicClient();
+
+  // 1. Get real listings by current user
+  const myListings = allListings.filter(
+    (l) => l.seller.toLowerCase() === address?.toLowerCase()
+  );
+
+  // 2. Fetch owned NFTs (Scanner)
+  const fetchOwnedNfts = useCallback(async () => {
+    if (!address || !publicClient) return;
+    setIsLoadingNfts(true);
+    try {
+      const owned: NFTListing[] = [];
+      const userLower = address.toLowerCase();
+      
+      // Scan each registered collection
+      for (const colAddress of COLLECTION_ADDRESSES) {
+        try {
+          // Get collection stats
+          const [name, symbol, totalSupplyRaw] = await Promise.all([
+            publicClient.readContract({ address: colAddress, abi: ERC721_ABI, functionName: "name" }),
+            publicClient.readContract({ address: colAddress, abi: ERC721_ABI, functionName: "symbol" }),
+            publicClient.readContract({ address: colAddress, abi: COLLECTION_ABI, functionName: "totalSupply" }).catch(() => 0n),
+          ]) as [string, string, bigint];
+
+          const totalSupply = Number(totalSupplyRaw);
+          const colName = name || symbol || "Unknown Collection";
+
+          // If totalSupply is 0, we might still have tokens if it's not implemented or starting at 1
+          // We scan up to totalSupply or a reasonable max for small collections
+          const maxToScan = totalSupply > 0 ? totalSupply : 20; 
+          
+          const ownerPromises = [];
+          for (let i = 1; i <= maxToScan; i++) {
+            ownerPromises.push(
+              publicClient.readContract({
+                address: colAddress,
+                abi: ERC721_ABI,
+                functionName: "ownerOf",
+                args: [BigInt(i)],
+              }).then(owner => ({ id: i, owner: (owner as string).toLowerCase() }))
+                .catch(() => null)
+            );
+          }
+
+          const owners = await Promise.all(ownerPromises);
+          
+          for (const item of owners) {
+            if (item && item.owner === userLower) {
+              const tokenId = item.id.toString();
+              
+              // Fetch metadata
+              let metadata = { name: `${colName} #${tokenId}`, description: "", image: "" };
+              try {
+                const tokenURI = await publicClient.readContract({
+                  address: colAddress,
+                  abi: ERC721_ABI,
+                  functionName: "tokenURI",
+                  args: [BigInt(tokenId)],
+                }) as string;
+                
+                const res = await fetch(resolveIPFS(tokenURI));
+                const data = await res.json();
+                metadata = {
+                  name: data.name || metadata.name,
+                  description: data.description || "",
+                  image: data.image || "",
+                };
+              } catch (e) {}
+
+              owned.push({
+                nftAddress: colAddress,
+                tokenId,
+                price: 0n,
+                seller: item.owner,
+                collectionName: colName,
+                metadata
+              });
+            }
+          }
+        } catch (e) {
+          console.error(`Error scanning collection ${colAddress}:`, e);
+        }
+      }
+      
+      setMyOwnedNfts(owned); 
+    } catch (e) {
+      console.error("Error scanning owned NFTs:", e);
+    } finally {
+      setIsLoadingNfts(false);
+    }
+  }, [address, publicClient]);
+
+  useEffect(() => {
+    fetchOwnedNfts();
+  }, [address, publicClient]);
+
+  const { updateListing, isPending: updatePending } = useUpdateListing(refetchMarketplace);
+  const { cancelListing, isPending: cancelPending } = useCancelListing(refetchMarketplace);
+
+  const grouped = groupByCollection(myOwnedNfts);
 
   async function handleUpdate() {
     if (!editListing || !newPrice) return;
@@ -74,6 +175,8 @@ export default function ProfilePage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
+
+  if (!mounted) return null;
 
   if (!isConnected) {
     return (
@@ -119,7 +222,7 @@ export default function ProfilePage() {
               </div>
               {copied && <p className="text-xs text-sage-600 font-sans">Copied!</p>}
               <p className="text-sm text-cream-400 font-sans mt-0.5">
-                {MOCK_MY_NFTS.length} NFTs · {MOCK_MY_LISTINGS.length} listed
+                {isLoadingNfts ? "..." : myOwnedNfts.length} NFTs · {isLoadingListings ? "..." : myListings.length} listed
               </p>
             </div>
           </div>
@@ -128,11 +231,15 @@ export default function ProfilePage() {
           <div className="flex flex-wrap gap-2">
             <div className="bg-sky-50 border border-sky-100 rounded-xl px-3 py-2 text-center min-w-[80px]">
               <p className="text-xs text-sky-400 font-sans">NFTs</p>
-              <p className="text-lg font-display font-bold text-sky-700">{MOCK_MY_NFTS.length}</p>
+              <p className="text-lg font-display font-bold text-sky-700">
+                {isLoadingNfts ? <Loader2 size={14} className="animate-spin inline" /> : myOwnedNfts.length}
+              </p>
             </div>
             <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 text-center min-w-[80px]">
               <p className="text-xs text-amber-400 font-sans">Listed</p>
-              <p className="text-lg font-display font-bold text-amber-700">{MOCK_MY_LISTINGS.length}</p>
+              <p className="text-lg font-display font-bold text-amber-700">
+                {isLoadingListings ? <Loader2 size={14} className="animate-spin inline" /> : myListings.length}
+              </p>
             </div>
           </div>
         </div>
@@ -181,15 +288,21 @@ export default function ProfilePage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {nfts.map((nft) => (
-                  <NFTCard key={nft.tokenId} listing={nft} />
+                  <NFTCard key={`${nft.nftAddress}-${nft.tokenId}`} listing={nft} />
                 ))}
               </div>
             </div>
           ))}
-          {MOCK_MY_NFTS.length === 0 && (
+          {!isLoadingNfts && myOwnedNfts.length === 0 && (
             <div className="text-center py-16">
               <ImageIcon size={32} className="text-cream-300 mx-auto mb-3" />
               <p className="text-cream-400 font-sans">No NFTs found in your wallet.</p>
+            </div>
+          )}
+          {isLoadingNfts && (
+            <div className="text-center py-16">
+              <Loader2 size={32} className="text-sky-500 animate-spin mx-auto mb-3" />
+              <p className="text-cream-400 font-sans">Scanning your wallet for NFTs...</p>
             </div>
           )}
         </div>
@@ -198,13 +311,18 @@ export default function ProfilePage() {
       {/* ── Tab: My Listings ── */}
       {tab === "listings" && (
         <div className="space-y-3">
-          {MOCK_MY_LISTINGS.length === 0 ? (
+          {isLoadingListings ? (
+            <div className="text-center py-16">
+              <Loader2 size={32} className="text-sky-500 animate-spin mx-auto mb-3" />
+              <p className="text-cream-400 font-sans">Fetching your active listings...</p>
+            </div>
+          ) : myListings.length === 0 ? (
             <div className="text-center py-16">
               <Tag size={32} className="text-cream-300 mx-auto mb-3" />
               <p className="text-cream-400 font-sans">You have no active listings.</p>
             </div>
           ) : (
-            MOCK_MY_LISTINGS.map((listing) => (
+            myListings.map((listing) => (
               <div
                 key={`${listing.nftAddress}-${listing.tokenId}`}
                 className="bg-white rounded-2xl border border-cream-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
@@ -267,43 +385,143 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* ── Tab: Earnings ── */}
+      {/* ── Tab: My Earnings ── */}
       {tab === "earnings" && (
-        <div className="max-w-2xl space-y-6">
-          <div>
-            <h2 className="text-base font-display font-semibold text-cream-800 mb-1">Your Earnings</h2>
-            <p className="text-sm text-cream-400 font-sans">
-              Sale proceeds and creator royalties are kept separate for full transparency.
-              Withdraw each independently.
-            </p>
-          </div>
-          <EarningsPanel />
-
-          {/* Explainer */}
-          <div className="bg-cream-50 border border-cream-100 rounded-2xl p-5 space-y-3">
-            <h3 className="text-sm font-display font-semibold text-cream-700">How earnings work</h3>
-            <div className="space-y-2">
-              <div className="flex items-start gap-3">
-                <div className="w-5 h-5 rounded-full bg-sky-100 flex items-center justify-center shrink-0 mt-0.5">
-                  <DollarSign size={10} className="text-sky-600" />
-                </div>
-                <p className="text-xs text-cream-500 font-sans">
-                  <strong className="text-cream-700">Sale Earnings</strong> — When one of your listed NFTs sells,
-                  the net proceeds (after royalty and platform fee) are credited here. Withdraw anytime.
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* 1. Sales Proceeds */}
+          <div className={clsx(
+            "rounded-2xl border p-6 flex flex-col justify-between transition-all duration-300",
+            balances.proceeds > 0n 
+              ? "bg-white border-cream-200 shadow-sm hover:shadow-md" 
+              : "bg-cream-50/50 border-cream-100 opacity-80"
+          )}>
+            <div>
+              <div className={clsx(
+                "w-12 h-12 rounded-2xl flex items-center justify-center mb-4 transition-colors",
+                balances.proceeds > 0n ? "bg-sky-50 text-sky-500" : "bg-cream-100 text-cream-400"
+              )}>
+                <TrendingUp size={24} />
+              </div>
+              <h3 className="text-lg font-display font-bold text-cream-900 mb-1">Sales Proceeds</h3>
+              <p className="text-sm text-cream-500 font-sans mb-6">
+                Earnings from NFTs you have sold on the marketplace.
+              </p>
+            </div>
+            <div>
+              <div className="mb-6">
+                <p className="text-xs text-cream-400 font-sans uppercase tracking-widest mb-1">Available to withdraw</p>
+                <p className={clsx(
+                  "text-3xl font-display font-bold",
+                  balances.proceeds > 0n ? "text-cream-900" : "text-cream-300"
+                )}>
+                  {formatEth(balances.proceeds)} <span className="text-sm font-normal text-cream-400">ETH</span>
                 </p>
               </div>
-              <div className="flex items-start gap-3">
-                <div className="w-5 h-5 rounded-full bg-violet-100 flex items-center justify-center shrink-0 mt-0.5">
-                  <Gem size={10} className="text-violet-600" />
-                </div>
-                <p className="text-xs text-cream-500 font-sans">
-                  <strong className="text-cream-700">Creator Royalties</strong> — If you are the royalty receiver
-                  on an ERC-2981 contract, every secondary sale of those NFTs earns you a royalty.
-                  These are tracked separately and can be withdrawn independently.
-                </p>
-              </div>
+              <Button 
+                variant="primary" 
+                fullWidth 
+                disabled={balances.proceeds === 0n}
+                loading={isWithdrawing && withdrawType === "proceeds"}
+                onClick={actions.withdrawProceeds}
+                className={balances.proceeds === 0n ? "bg-sky-100 text-sky-600 border-none cursor-not-allowed disabled:opacity-100 hover:bg-sky-100 active:scale-100" : ""}
+              >
+                {balances.proceeds > 0n ? "Withdraw Proceeds" : "No Proceeds Available"}
+              </Button>
             </div>
           </div>
+
+          {/* 2. Creator Royalties */}
+          <div className={clsx(
+            "rounded-2xl border p-6 flex flex-col justify-between transition-all duration-300",
+            balances.royalties > 0n 
+              ? "bg-white border-cream-200 shadow-sm hover:shadow-md" 
+              : "bg-cream-50/50 border-cream-100 opacity-80"
+          )}>
+            <div>
+              <div className={clsx(
+                "w-12 h-12 rounded-2xl flex items-center justify-center mb-4 transition-colors",
+                balances.royalties > 0n ? "bg-violet-50 text-violet-500" : "bg-cream-100 text-cream-400"
+              )}>
+                <Gem size={24} />
+              </div>
+              <h3 className="text-lg font-display font-bold text-cream-900 mb-1">Creator Royalties</h3>
+              <p className="text-sm text-cream-500 font-sans mb-6">
+                Passive income earned from secondary sales of your creations.
+              </p>
+            </div>
+            <div>
+              <div className="mb-6">
+                <p className="text-xs text-cream-400 font-sans uppercase tracking-widest mb-1">Available to withdraw</p>
+                <p className={clsx(
+                  "text-3xl font-display font-bold",
+                  balances.royalties > 0n ? "text-cream-900" : "text-cream-300"
+                )}>
+                  {formatEth(balances.royalties)} <span className="text-sm font-normal text-cream-400">ETH</span>
+                </p>
+              </div>
+              <Button 
+                variant={balances.royalties > 0n ? "secondary" : "ghost"}
+                fullWidth 
+                disabled={balances.royalties === 0n}
+                loading={isWithdrawing && withdrawType === "royalties"}
+                onClick={actions.withdrawRoyalties}
+                className={clsx(
+                  balances.royalties > 0n && "border-violet-200 text-violet-700 hover:bg-violet-50",
+                  balances.royalties === 0n && "bg-sky-100 text-sky-600 border-none cursor-not-allowed disabled:opacity-100 hover:bg-sky-100 active:scale-100"
+                )}
+              >
+                {balances.royalties > 0n ? "Withdraw Royalties" : "No Royalties Available"}
+              </Button>
+            </div>
+          </div>
+
+          {/* 3. Marketplace Fees (Admin Only) */}
+          {isOwner && (
+            <div className={clsx(
+              "rounded-2xl p-6 flex flex-col justify-between shadow-lg ring-1 ring-white/10 relative overflow-hidden transition-all duration-300",
+              balances.fees > 0n ? "bg-cream-900" : "bg-cream-800 opacity-90"
+            )}>
+              {/* Background Glow */}
+              <div className="absolute -top-10 -right-10 w-32 h-32 bg-sky-500/20 blur-3xl rounded-full" />
+              
+              <div className="relative">
+                <div className={clsx(
+                  "w-12 h-12 rounded-2xl flex items-center justify-center mb-4 backdrop-blur-md",
+                  balances.fees > 0n ? "bg-white/10 text-sky-400" : "bg-white/5 text-sky-900"
+                )}>
+                  <Zap size={24} />
+                </div>
+                <h3 className="text-lg font-display font-bold text-white mb-1">Platform Fees</h3>
+                <p className="text-sm text-cream-300 font-sans mb-6">
+                  Total revenue collected from marketplace service fees (2%).
+                </p>
+              </div>
+              <div className="relative">
+                <div className="mb-6">
+                  <p className="text-xs text-cream-400 font-sans uppercase tracking-widest mb-1">Admin Balance</p>
+                  <p className={clsx(
+                    "text-3xl font-display font-bold",
+                    balances.fees > 0n ? "text-white" : "text-white/40"
+                  )}>
+                    {formatEth(balances.fees)} <span className="text-sm font-normal text-cream-500">ETH</span>
+                  </p>
+                </div>
+                <Button 
+                  variant="primary" 
+                  fullWidth 
+                  disabled={balances.fees === 0n}
+                  loading={isWithdrawing && withdrawType === "fees"}
+                  onClick={actions.withdrawMarketplaceFees}
+                  className={clsx(
+                    "bg-sky-500 hover:bg-sky-400 text-white border-none",
+                    balances.fees === 0n && "bg-white/10 text-white/30 cursor-not-allowed hover:bg-white/10"
+                  )}
+                >
+                  {balances.fees > 0n ? "Withdraw Admin Fees" : "No Fees Collected"}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
