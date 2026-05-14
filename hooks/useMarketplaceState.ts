@@ -18,104 +18,107 @@ export function useMarketplaceState() {
     setError(null);
 
     try {
-      // 1. Fetch all relevant events from the marketplace
-      // For production, you'd want to limit the block range or use a subgraph
       const currentBlock = await publicClient.getBlockNumber();
-      const fromBlock = currentBlock - 50000n; // Scan last ~50k blocks
+      // Scan a larger range for better reliability, or from a known start block
+      const fromBlock = currentBlock > 500000n ? currentBlock - 500000n : 0n;
 
       const [listedLogs, boughtLogs, cancelledLogs, updatedLogs] = await Promise.all([
-        publicClient.getContractEvents({
-          address: MARKETPLACE_ADDRESS,
-          abi: MARKETPLACE_ABI,
-          eventName: "ItemListed",
-          fromBlock,
-        }),
-        publicClient.getContractEvents({
-          address: MARKETPLACE_ADDRESS,
-          abi: MARKETPLACE_ABI,
-          eventName: "ItemBought",
-          fromBlock,
-        }),
-        publicClient.getContractEvents({
-          address: MARKETPLACE_ADDRESS,
-          abi: MARKETPLACE_ABI,
-          eventName: "ItemCancelled",
-          fromBlock,
-        }),
-        publicClient.getContractEvents({
-          address: MARKETPLACE_ADDRESS,
-          abi: MARKETPLACE_ABI,
-          eventName: "ItemUpdated",
-          fromBlock,
-        }),
+        publicClient.getContractEvents({ address: MARKETPLACE_ADDRESS, abi: MARKETPLACE_ABI, eventName: "ItemListed", fromBlock }),
+        publicClient.getContractEvents({ address: MARKETPLACE_ADDRESS, abi: MARKETPLACE_ABI, eventName: "ItemBought", fromBlock }),
+        publicClient.getContractEvents({ address: MARKETPLACE_ADDRESS, abi: MARKETPLACE_ABI, eventName: "ItemCancelled", fromBlock }),
+        publicClient.getContractEvents({ address: MARKETPLACE_ADDRESS, abi: MARKETPLACE_ABI, eventName: "ItemUpdated", fromBlock }),
       ]);
 
-      // 2. Reconstruct active listings
-      // Map key: nftAddress-tokenId
+      // Combine and sort events chronologically to reconstruct state correctly
+      const allEvents = [
+        ...listedLogs.map(l => ({ ...l, type: 'listed' })),
+        ...boughtLogs.map(l => ({ ...l, type: 'bought' })),
+        ...cancelledLogs.map(l => ({ ...l, type: 'cancelled' })),
+        ...updatedLogs.map(l => ({ ...l, type: 'updated' })),
+      ].sort((a, b) => {
+        if (a.blockNumber !== b.blockNumber) return Number(a.blockNumber - b.blockNumber);
+        return (a.logIndex || 0) - (b.logIndex || 0);
+      });
+
       const activeListingsMap = new Map<string, NFTListing>();
 
-      // Process listed items
-      listedLogs.forEach((log) => {
-        const { seller, nftAddress, tokenId, price } = log.args as any;
+      allEvents.forEach((event) => {
+        const { nftAddress, tokenId } = event.args as any;
         const key = `${nftAddress.toLowerCase()}-${tokenId.toString()}`;
-        activeListingsMap.set(key, {
-          nftAddress,
-          tokenId: tokenId.toString(),
-          seller,
-          price,
-        });
-      });
 
-      // Process updates
-      updatedLogs.forEach((log) => {
-        const { nftAddress, tokenId, newPrice } = log.args as any;
-        const key = `${nftAddress.toLowerCase()}-${tokenId.toString()}`;
-        if (activeListingsMap.has(key)) {
-          activeListingsMap.get(key)!.price = newPrice;
+        switch (event.type) {
+          case 'listed':
+            activeListingsMap.set(key, {
+              nftAddress,
+              tokenId: tokenId.toString(),
+              seller: (event.args as any).seller,
+              price: (event.args as any).price,
+            });
+            break;
+          case 'updated':
+            if (activeListingsMap.has(key)) {
+              activeListingsMap.get(key)!.price = (event.args as any).newPrice;
+            }
+            break;
+          case 'cancelled':
+          case 'bought':
+            activeListingsMap.delete(key);
+            break;
         }
-      });
-
-      // Process cancellations
-      cancelledLogs.forEach((log) => {
-        const { nftAddress, tokenId } = log.args as any;
-        const key = `${nftAddress.toLowerCase()}-${tokenId.toString()}`;
-        activeListingsMap.delete(key);
-      });
-
-      // Process buys
-      boughtLogs.forEach((log) => {
-        const { nftAddress, tokenId } = log.args as any;
-        const key = `${nftAddress.toLowerCase()}-${tokenId.toString()}`;
-        activeListingsMap.delete(key);
       });
 
       const activeListings = Array.from(activeListingsMap.values());
 
-      // 3. Fetch Metadata and Collection Info for each active listing
+      // 3. Fetch Metadata, Collection Info, and Royalties for each active listing
       const enrichedListings = await Promise.all(
         activeListings.map(async (listing) => {
           try {
-            // Fetch tokenURI
-            const tokenURI = (await publicClient.readContract({
-              address: listing.nftAddress as `0x${string}`,
-              abi: ERC721_ABI,
-              functionName: "tokenURI",
-              args: [BigInt(listing.tokenId)],
-            })) as string;
+            const nftAddress = listing.nftAddress as `0x${string}`;
+            const tokenId = BigInt(listing.tokenId);
 
-            // Fetch name and symbol of the collection
-            const [name, symbol] = (await Promise.all([
-              publicClient.readContract({
-                address: listing.nftAddress as `0x${string}`,
-                abi: ERC721_ABI,
-                functionName: "name",
-              }),
-              publicClient.readContract({
-                address: listing.nftAddress as `0x${string}`,
-                abi: ERC721_ABI,
-                functionName: "symbol",
-              }),
-            ])) as [string, string];
+            // Double check isActive in contract to be 100% sure
+            const contractListing = await publicClient.readContract({
+              address: MARKETPLACE_ADDRESS,
+              abi: MARKETPLACE_ABI,
+              functionName: "listings",
+              args: [nftAddress, tokenId],
+            }) as [string, bigint, boolean];
+
+            if (!contractListing[2]) return null; // Not active
+
+            // Fetch tokenURI, name, symbol
+            const [tokenURI, name, symbol] = await Promise.all([
+              publicClient.readContract({ address: nftAddress, abi: ERC721_ABI, functionName: "tokenURI", args: [tokenId] }),
+              publicClient.readContract({ address: nftAddress, abi: ERC721_ABI, functionName: "name" }).catch(() => "Unknown"),
+              publicClient.readContract({ address: nftAddress, abi: ERC721_ABI, functionName: "symbol" }).catch(() => ""),
+            ]) as [string, string, string];
+
+            // Fetch Royalty Info (ERC2981)
+            let royaltyBps = 0;
+            let hasRoyalty = false;
+            try {
+              const [receiver, amount] = await publicClient.readContract({
+                address: nftAddress,
+                abi: [
+                  {
+                    name: "royaltyInfo",
+                    type: "function",
+                    stateMutability: "view",
+                    inputs: [{ type: "uint256" }, { type: "uint256" }],
+                    outputs: [{ type: "address" }, { type: "uint256" }],
+                  },
+                ],
+                functionName: "royaltyInfo",
+                args: [tokenId, parseEther("1")], // Use 1 ETH to get BPS
+              }) as [string, bigint];
+              
+              if (amount > 0n) {
+                royaltyBps = Number((amount * 10000n) / parseEther("1"));
+                hasRoyalty = true;
+              }
+            } catch (e) {
+              // No royalty support
+            }
 
             // Resolve metadata
             const metadataUrl = resolveIPFS(tokenURI);
@@ -126,31 +129,25 @@ export function useMarketplaceState() {
             };
 
             try {
-              const controller = new AbortController();
-              const id = setTimeout(() => controller.abort(), 5000); // 5s timeout
-
-              const res = await fetch(metadataUrl, { signal: controller.signal });
-              clearTimeout(id);
-              
-              if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-              
-              const data = await res.json();
-              metadata = {
-                name: data.name || metadata.name,
-                description: data.description || "",
-                image: resolveIPFS(data.image || ""),
-                attributes: data.attributes,
-              };
-            } catch (e) {
-              console.warn(`Error fetching metadata for ${listing.nftAddress} #${listing.tokenId}:`, e);
-              // Keep default metadata but maybe mark it as failed to load
-            }
+              const res = await fetch(metadataUrl);
+              if (res.ok) {
+                const data = await res.json();
+                metadata = {
+                  name: data.name || metadata.name,
+                  description: data.description || "",
+                  image: resolveIPFS(data.image || ""),
+                  attributes: data.attributes,
+                };
+              }
+            } catch (e) {}
 
             return {
               ...listing,
               collectionName: name,
               collectionSymbol: symbol,
               metadata,
+              royaltyBps,
+              hasRoyalty,
             };
           } catch (e) {
             console.error(`Error enriching listing ${listing.nftAddress} #${listing.tokenId}:`, e);
@@ -159,7 +156,7 @@ export function useMarketplaceState() {
         })
       );
 
-      setListings(enrichedListings);
+      setListings(enrichedListings.filter(Boolean) as NFTListing[]);
     } catch (e) {
       console.error("Error fetching marketplace state:", e);
       setError(e instanceof Error ? e : new Error("Unknown error"));

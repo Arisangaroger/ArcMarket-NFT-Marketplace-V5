@@ -48,8 +48,10 @@ export function useListItem(onSuccess?: () => void) {
   }
 
   useEffect(() => {
-    if (isSuccess && onSuccess) {
-      onSuccess();
+    if (isSuccess) {
+      setActiveTx({ status: "success", message: "NFT listed successfully!" });
+      if (onSuccess) onSuccess();
+      setTimeout(resetTx, 5000);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
@@ -82,8 +84,10 @@ export function useBuyItem(onSuccess?: () => void) {
   }
 
   useEffect(() => {
-    if (isSuccess && onSuccess) {
-      onSuccess();
+    if (isSuccess) {
+      setActiveTx({ status: "success", message: "Purchase complete!" });
+      if (onSuccess) onSuccess();
+      setTimeout(resetTx, 5000);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
@@ -114,8 +118,10 @@ export function useCancelListing(onSuccess?: () => void) {
   }
 
   useEffect(() => {
-    if (isSuccess && onSuccess) {
-      onSuccess();
+    if (isSuccess) {
+      setActiveTx({ status: "success", message: "Listing cancelled." });
+      if (onSuccess) onSuccess();
+      setTimeout(resetTx, 5000);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
@@ -146,8 +152,10 @@ export function useUpdateListing(onSuccess?: () => void) {
   }
 
   useEffect(() => {
-    if (isSuccess && onSuccess) {
-      onSuccess();
+    if (isSuccess) {
+      setActiveTx({ status: "success", message: "Price updated!" });
+      if (onSuccess) onSuccess();
+      setTimeout(resetTx, 5000);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);

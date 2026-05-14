@@ -16,6 +16,7 @@ import { useMint } from "@/hooks/useMint";
 import { NFTListing } from "@/lib/types";
 import Link from "next/link";
 import { AlertCircle, ArrowLeft, Loader2, TrendingUp, Tag, Users, Gem, Copy, ExternalLink, Zap, Image as ImageIcon, Wallet } from "lucide-react";
+import { Input } from "@/components/ui/Input";
 import { clsx } from "clsx";
 
 // ── Data is now looked up dynamically from @/lib/collections-config ───────────
@@ -23,7 +24,6 @@ import { clsx } from "clsx";
 export default function CollectionPage() {
   const params = useParams();
   const address = params.address as string;
-  const [buyModal, setBuyModal] = useState<NFTListing | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeUserTab, setActiveUserTab] = useState<"unlisted" | "listed">("unlisted");
   const { refetch: refetchCollection, collection, isLoading: collectionLoading } = useCollection(address);

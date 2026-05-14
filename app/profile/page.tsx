@@ -51,9 +51,9 @@ export default function ProfilePage() {
   const [editListing, setEditListing] = useState<NFTListing | null>(null);
   const [newPrice, setNewPrice] = useState("");
   const [copied, setCopied] = useState(false);
+  const [isLoadingNfts, setIsLoadingNfts] = useState(false);
 
   const [myOwnedNfts, setMyOwnedNfts] = useState<NFTListing[]>([]);
-  const [isLoadingNfts, setIsLoadingNfts] = useState(false);
 
   const { listings: allListings, isLoading: isLoadingListings, refetch: refetchMarketplace } = useMarketplaceState();
   const publicClient = usePublicClient();
