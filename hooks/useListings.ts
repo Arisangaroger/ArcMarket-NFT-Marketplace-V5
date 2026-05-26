@@ -1,6 +1,6 @@
 "use client";
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS } from "@/lib/constants";
+import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS, CHAIN_ID } from "@/lib/constants";
 import { useMarketStore } from "@/lib/store";
 import { parseEther } from "viem";
 
@@ -33,6 +33,7 @@ export function useListItem(onSuccess?: () => void) {
     try {
       setActiveTx({ status: "pending", message: "Confirm listing in wallet…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "listItem",
@@ -68,6 +69,7 @@ export function useBuyItem(onSuccess?: () => void) {
     try {
       setActiveTx({ status: "pending", message: "Confirm purchase in wallet…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "buyItem",
@@ -104,6 +106,7 @@ export function useCancelListing(onSuccess?: () => void) {
     try {
       setActiveTx({ status: "pending", message: "Confirm cancellation…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "cancelListing",
@@ -138,6 +141,7 @@ export function useUpdateListing(onSuccess?: () => void) {
     try {
       setActiveTx({ status: "pending", message: "Confirm price update…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "updateListing",

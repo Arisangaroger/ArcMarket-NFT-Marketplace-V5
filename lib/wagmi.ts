@@ -1,5 +1,5 @@
 import { createConfig, http } from "wagmi";
-import { mainnet, sepolia, polygon, polygonMumbai } from "wagmi/chains";
+import { mainnet, sepolia } from "wagmi/chains";
 import { walletConnect, injected, coinbaseWallet } from "wagmi/connectors";
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "YOUR_WALLETCONNECT_PROJECT_ID";
@@ -12,16 +12,14 @@ const metadata = {
 };
 
 export const wagmiConfig = createConfig({
-  chains: [sepolia, mainnet, polygon, polygonMumbai],
+  chains: [sepolia, mainnet],
   connectors: [
     injected(),
     walletConnect({ projectId, metadata }),
     coinbaseWallet({ appName: metadata.name }),
   ],
   transports: {
-    [mainnet.id]: http(process.env.NEXT_PUBLIC_RPC_URL),
+    [mainnet.id]: http(),
     [sepolia.id]: http(process.env.NEXT_PUBLIC_RPC_URL),
-    [polygon.id]: http(),
-    [polygonMumbai.id]: http(),
   },
 });
