@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ShoppingCart, Eye, Gem } from "lucide-react";
+import { ShoppingCart, Eye, Gem, Pencil, X } from "lucide-react";
 import { NFTListing } from "@/lib/types";
 import { formatEth, shortenAddress, resolveIPFS } from "@/lib/constants";
 import { RoyaltyBadge } from "./RoyaltyBadge";
@@ -11,10 +11,12 @@ import { clsx } from "clsx";
 interface NFTCardProps {
   listing: NFTListing;
   onQuickBuy?: (listing: NFTListing) => void;
+  onEdit?: (listing: NFTListing) => void;
+  onCancel?: (listing: NFTListing) => void;
   variant?: "default" | "compact";
 }
 
-export function NFTCard({ listing, onQuickBuy, variant = "default" }: NFTCardProps) {
+export function NFTCard({ listing, onQuickBuy, onEdit, onCancel, variant = "default" }: NFTCardProps) {
   const isCompact = variant === "compact";
   const [hovered, setHovered] = useState(false);
   const imageUrl = resolveIPFS(listing.metadata?.image || "");
@@ -41,23 +43,41 @@ export function NFTCard({ listing, onQuickBuy, variant = "default" }: NFTCardPro
         {/* Hover overlay */}
         <div
           className={clsx(
-            "absolute inset-0 bg-cream-900/50 flex items-center justify-center gap-3 transition-opacity duration-200",
+            "absolute inset-0 bg-cream-900/50 flex items-center justify-center gap-2 transition-opacity duration-200 flex-wrap p-2",
             hovered ? "opacity-100" : "opacity-0"
           )}
         >
           <Link
             href={`/nft/${listing.nftAddress}/${listing.tokenId}`}
-            className="flex items-center gap-1.5 bg-white text-cream-800 text-xs font-display font-semibold px-3 py-2 rounded-xl hover:bg-cream-100 transition-colors"
+            className="flex items-center gap-1 bg-white text-cream-800 text-[10px] sm:text-xs font-display font-semibold px-2 py-1.5 rounded-lg hover:bg-cream-100 transition-colors"
           >
-            <Eye size={13} />
+            <Eye size={12} />
             Details
           </Link>
+          {onEdit && (
+            <button
+              onClick={() => onEdit(listing)}
+              className="flex items-center gap-1 bg-sky-500 text-white text-[10px] sm:text-xs font-display font-semibold px-2 py-1.5 rounded-lg hover:bg-sky-600 transition-colors"
+            >
+              <Pencil size={12} />
+              Edit
+            </button>
+          )}
+          {onCancel && (
+            <button
+              onClick={() => onCancel(listing)}
+              className="flex items-center gap-1 bg-rose-500 text-white text-[10px] sm:text-xs font-display font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-600 transition-colors"
+            >
+              <X size={12} />
+              Cancel
+            </button>
+          )}
           {onQuickBuy && (
             <button
               onClick={() => onQuickBuy(listing)}
-              className="flex items-center gap-1.5 bg-sky-500 text-white text-xs font-display font-semibold px-3 py-2 rounded-xl hover:bg-sky-600 transition-colors"
+              className="flex items-center gap-1 bg-sky-500 text-white text-[10px] sm:text-xs font-display font-semibold px-2 py-1.5 rounded-lg hover:bg-sky-600 transition-colors"
             >
-              <ShoppingCart size={13} />
+              <ShoppingCart size={12} />
               Buy
             </button>
           )}
@@ -108,7 +128,7 @@ export function NFTCard({ listing, onQuickBuy, variant = "default" }: NFTCardPro
             hasRoyalty={!!listing.hasRoyalty}
             royaltyPercent={listing.royaltyBps ? listing.royaltyBps / 100 : undefined}
             showLabel={false}
-            size={isCompact ? "xs" : "sm"}
+            size="sm"
           />
         </div>
       </div>

@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { usePublicClient } from "wagmi";
-import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS, ERC721_ABI, resolveIPFS } from "@/lib/constants";
+import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS, ERC721_ABI, COLLECTION_ABI, resolveIPFS } from "@/lib/constants";
 import { NFTListing, NFTMetadata } from "@/lib/types";
 import { COLLECTION_ADDRESSES } from "@/lib/collections-config";
+import { parseEther } from "viem";
 
 export function useMarketplaceState() {
   const [listings, setListings] = useState<NFTListing[]>([]);
@@ -158,8 +159,131 @@ export function useMarketplaceState() {
 
       setListings(enrichedListings.filter(Boolean) as NFTListing[]);
     } catch (e) {
-      console.error("Error fetching marketplace state:", e);
-      setError(e instanceof Error ? e : new Error("Unknown error"));
+      console.warn("Event fetching failed (possibly due to Alchemy RPC block range limits). Falling back to direct collection scanning...", e);
+      try {
+        const scannedListings: NFTListing[] = [];
+
+        for (const colAddress of COLLECTION_ADDRESSES) {
+          try {
+            const [name, symbol, totalSupplyRaw] = await Promise.all([
+              publicClient.readContract({ address: colAddress, abi: COLLECTION_ABI, functionName: "name" }).catch(() => "Unknown"),
+              publicClient.readContract({ address: colAddress, abi: COLLECTION_ABI, functionName: "symbol" }).catch(() => ""),
+              publicClient.readContract({ address: colAddress, abi: COLLECTION_ABI, functionName: "totalSupply" }).catch(() => 0n),
+            ]) as [string, string, bigint];
+
+            const totalSupply = Number(totalSupplyRaw);
+            const maxToScan = totalSupply > 0 ? totalSupply : 20;
+
+            const promises = [];
+            for (let i = 1; i <= maxToScan; i++) {
+              promises.push(
+                publicClient.readContract({
+                  address: MARKETPLACE_ADDRESS,
+                  abi: MARKETPLACE_ABI,
+                  functionName: "listings",
+                  args: [colAddress, BigInt(i)],
+                }).then(res => ({ tokenId: i, res }))
+                  .catch(() => null)
+              );
+            }
+
+            const results = await Promise.all(promises);
+            for (const item of results) {
+              if (item && item.res && item.res[2]) { // isActive
+                const [seller, price] = item.res as [string, bigint, boolean];
+                scannedListings.push({
+                  nftAddress: colAddress,
+                  tokenId: item.tokenId.toString(),
+                  seller,
+                  price,
+                  collectionName: name,
+                  collectionSymbol: symbol
+                });
+              }
+            }
+          } catch (colErr) {
+            console.error(`Error scanning collection ${colAddress} in fallback:`, colErr);
+          }
+        }
+
+        // Enrich the fallback listings with metadata & royalty info
+        const enrichedScannedListings = await Promise.all(
+          scannedListings.map(async (listing) => {
+            try {
+              const nftAddress = listing.nftAddress as `0x${string}`;
+              const tokenId = BigInt(listing.tokenId);
+
+              // Fetch tokenURI
+              const tokenURI = await publicClient.readContract({
+                address: nftAddress,
+                abi: ERC721_ABI,
+                functionName: "tokenURI",
+                args: [tokenId],
+              }) as string;
+
+              // Fetch Royalty Info (ERC2981)
+              let royaltyBps = 0;
+              let hasRoyalty = false;
+              try {
+                const [receiver, amount] = await publicClient.readContract({
+                  address: nftAddress,
+                  abi: [
+                    {
+                      name: "royaltyInfo",
+                      type: "function",
+                      stateMutability: "view",
+                      inputs: [{ type: "uint256" }, { type: "uint256" }],
+                      outputs: [{ type: "address" }, { type: "uint256" }],
+                    },
+                  ],
+                  functionName: "royaltyInfo",
+                  args: [tokenId, parseEther("1")],
+                }) as [string, bigint];
+
+                if (amount > 0n) {
+                  royaltyBps = Number((amount * 10000n) / parseEther("1"));
+                  hasRoyalty = true;
+                }
+              } catch (e) {}
+
+              // Resolve metadata
+              const metadataUrl = resolveIPFS(tokenURI);
+              let metadata: NFTMetadata = {
+                name: `${listing.collectionName} #${listing.tokenId}`,
+                description: "",
+                image: "/placeholder-nft.svg",
+              };
+
+              try {
+                const res = await fetch(metadataUrl);
+                if (res.ok) {
+                  const data = await res.json();
+                  metadata = {
+                    name: data.name || metadata.name,
+                    description: data.description || "",
+                    image: resolveIPFS(data.image || ""),
+                  };
+                }
+              } catch (e) {}
+
+              return {
+                ...listing,
+                metadata,
+                royaltyBps,
+                hasRoyalty,
+              };
+            } catch (enrichErr) {
+              console.error(`Error enriching scanned listing ${listing.nftAddress} #${listing.tokenId}:`, enrichErr);
+              return listing;
+            }
+          })
+        );
+
+        setListings(enrichedScannedListings.filter(Boolean) as NFTListing[]);
+      } catch (fallbackErr) {
+        console.error("Critical fallback scanning failure:", fallbackErr);
+        setError(fallbackErr instanceof Error ? fallbackErr : new Error("Fallback failed"));
+      }
     } finally {
       setIsLoading(false);
     }

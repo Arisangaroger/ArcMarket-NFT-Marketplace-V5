@@ -1,6 +1,6 @@
 "use client";
 import { useReadContract } from "wagmi";
-import { ERC2981_ABI, MARKETPLACE_ABI, MARKETPLACE_ADDRESS, bpsToPercent } from "@/lib/constants";
+import { ERC2981_ABI, bpsToPercent } from "@/lib/constants";
 import { parseEther } from "viem";
 
 export function useRoyaltyInfo(nftAddress: `0x${string}` | undefined, tokenId: string) {
@@ -26,15 +26,4 @@ export function useRoyaltyInfo(nftAddress: `0x${string}` | undefined, tokenId: s
     royaltyPercent: bpsToPercent(Math.round(royaltyBps)),
     hasRoyalty,
   };
-}
-
-export function useRoyaltyProceeds(address: `0x${string}` | undefined) {
-  const { data, refetch } = useReadContract({
-    address: MARKETPLACE_ADDRESS,
-    abi: MARKETPLACE_ABI,
-    functionName: "royalties",
-    args: address ? [address] : undefined,
-    query: { enabled: !!address },
-  });
-  return { royaltyProceeds: (data as bigint | undefined) ?? 0n, refetch };
 }

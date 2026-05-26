@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useWithdrawPlatformFees } from "@/hooks/useProceeds";
-import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS, formatEth } from "@/lib/constants";
+import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS, formatEth, shortenAddress } from "@/lib/constants";
 import {
   DollarSign, Gem, TrendingUp, Activity, ArrowDownToLine,
-  BarChart3, ShoppingCart, Users, Zap, Shield, AlertCircle,
+  BarChart3, ShoppingCart, Users, Zap, Shield, AlertCircle, ExternalLink,
 } from "lucide-react";
 import { parseEther } from "viem";
 import { useCollections } from "@/hooks/useCollections";

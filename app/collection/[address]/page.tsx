@@ -1,13 +1,15 @@
 "use client";
 import { useState, useCallback } from "react";
 import { useParams } from "next/navigation";
+import { useAccount } from "wagmi";
 import { NFTCard } from "@/components/nft/NFTCard";
 import { RoyaltyBadge } from "@/components/nft/RoyaltyBadge";
 import { Modal } from "@/components/ui/Modal";
 import { PriceBreakdown } from "@/components/nft/PriceBreakdown";
 import { Button } from "@/components/ui/Button";
 import Image from "next/image";
-import { useBuyItem } from "@/hooks/useListings";
+import { useBuyItem, useListItem, useCancelListing, useUpdateListing } from "@/hooks/useListings";
+import { useApproval } from "@/hooks/useApproval";
 import { formatEth, shortenAddress, resolveIPFS, PLATFORM_NAME } from "@/lib/constants";
 import { parseEther } from "viem";
 import { useCollection, useUserCollectionNFTs } from "@/hooks/useCollections";
@@ -15,7 +17,7 @@ import { useMarketplaceState } from "@/hooks/useMarketplaceState";
 import { useMint } from "@/hooks/useMint";
 import { NFTListing } from "@/lib/types";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft, Loader2, TrendingUp, Tag, Users, Gem, Copy, ExternalLink, Zap, Image as ImageIcon, Wallet } from "lucide-react";
+import { AlertCircle, ArrowLeft, Loader2, TrendingUp, Tag, Users, Gem, Copy, ExternalLink, Zap, Image as ImageIcon, Wallet, Pencil, X, Eye } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { clsx } from "clsx";
 
@@ -24,11 +26,20 @@ import { clsx } from "clsx";
 export default function CollectionPage() {
   const params = useParams();
   const address = params.address as string;
+  const { address: userAddress } = useAccount();
   const [copied, setCopied] = useState(false);
   const [activeUserTab, setActiveUserTab] = useState<"unlisted" | "listed">("unlisted");
+  const [buyModal, setBuyModal] = useState<NFTListing | null>(null);
+  const [listModalNft, setListModalNft] = useState<{ tokenId: string; metadata?: any } | null>(null);
+  const [listPrice, setListPrice] = useState("");
+  const [editListingNft, setEditListingNft] = useState<{ tokenId: string; nftAddress: string; price: bigint } | null>(null);
+  const [editPrice, setEditPrice] = useState("");
+
   const { refetch: refetchCollection, collection, isLoading: collectionLoading } = useCollection(address);
   const { refetch: refetchMarketplace, listings: allListings, isLoading: listingsLoading } = useMarketplaceState();
   const { ownedNFTs, isLoading: ownedLoading, refetch: refetchOwned } = useUserCollectionNFTs(address);
+
+  const { isApproved, approve, isPending: approvalPending } = useApproval(address as `0x${string}`, userAddress);
 
   const handleMintSuccess = useCallback(() => {
     refetchCollection();
@@ -41,8 +52,35 @@ export default function CollectionPage() {
     refetchOwned();
   }, [refetchCollection, refetchMarketplace, refetchOwned]);
 
+  const handleListingSuccess = useCallback(() => {
+    refetchCollection();
+    refetchMarketplace();
+    refetchOwned();
+  }, [refetchCollection, refetchMarketplace, refetchOwned]);
+
   const { buyItem, isPending: buyPending } = useBuyItem(handleBuySuccess);
+  const { listItem, isPending: listPending } = useListItem(handleListingSuccess);
+  const { cancelListing, isPending: cancelPending } = useCancelListing(handleListingSuccess);
+  const { updateListing, isPending: updatePending } = useUpdateListing(handleListingSuccess);
   const { mint, isPending: mintPending } = useMint(handleMintSuccess);
+
+  async function handleListItem() {
+    if (!listModalNft || !listPrice) return;
+    await listItem(address as `0x${string}`, listModalNft.tokenId, listPrice);
+    setListModalNft(null);
+    setListPrice("");
+  }
+
+  async function handleCancel(tokenId: string) {
+    await cancelListing(address as `0x${string}`, tokenId);
+  }
+
+  async function handleUpdateListing() {
+    if (!editListingNft || !editPrice) return;
+    await updateListing(address as `0x${string}`, editListingNft.tokenId, editPrice);
+    setEditListingNft(null);
+    setEditPrice("");
+  }
 
   const listings = allListings.filter(
     (l) => l.nftAddress.toLowerCase() === address.toLowerCase()
@@ -75,6 +113,7 @@ export default function CollectionPage() {
   }
 
   function copyAddress() {
+    if (!collection) return;
     navigator.clipboard.writeText(collection.creatorAddress);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -351,34 +390,99 @@ export default function CollectionPage() {
                         const listing = allListings.find(l => l.nftAddress.toLowerCase() === address.toLowerCase() && l.tokenId === nft.tokenId);
                         
                         return (
-                          <div key={nft.tokenId} className="group relative w-36 shrink-0 flex flex-col gap-3">
-                            <div className="relative aspect-square w-full rounded-2xl overflow-hidden border border-cream-200 shadow-sm group-hover:border-sky-300 group-hover:shadow-lg transition-all duration-500">
+                          <div key={nft.tokenId} className="group relative w-36 shrink-0 flex flex-col bg-white rounded-2xl border border-cream-200/60 p-2 shadow-sm hover:shadow-md hover:border-sky-300 transition-all duration-300">
+                            {/* Card Image Wrapper */}
+                            <div className="relative aspect-square w-full rounded-xl overflow-hidden border border-cream-100 bg-cream-50">
+                               {/* NFT Image */}
                                <Image 
                                  src={resolveIPFS(nft.metadata?.image || "/placeholder-nft.svg")}
                                  alt={`NFT ${nft.tokenId}`}
                                  fill
-                                 className="object-cover group-hover:scale-110 transition-transform duration-700"
+                                 className="object-cover group-hover:scale-105 transition-transform duration-500"
                                  unoptimized
                                />
-                               <div className="absolute inset-x-0 bottom-0 bg-black/60 backdrop-blur-md px-2 py-1.5 flex items-center justify-center">
-                                 <span className="text-[11px] font-display font-bold text-white tracking-wider">#{nft.tokenId}</span>
+
+                               {/* Floating Token ID Badge */}
+                               <div className="absolute top-2 left-2 bg-white/75 backdrop-blur-md px-1.5 py-0.5 rounded-lg border border-white/50 shadow-[0_1px_3px_rgba(0,0,0,0.05)]">
+                                 <span className="text-[10px] font-mono font-bold text-cream-800">#{nft.tokenId}</span>
                                </div>
+
+                               {/* Floating Price Badge (for listed items) */}
+                               {activeUserTab === "listed" && listing && (
+                                 <div className="absolute bottom-2 left-2 bg-cream-900/80 backdrop-blur-sm px-2 py-0.5 rounded-lg border border-white/10 shadow-sm">
+                                   <span className="text-[10px] font-display font-bold text-white">
+                                     {formatEth(listing.price)} ETH
+                                   </span>
+                                 </div>
+                               )}
                             </div>
-                            
-                            {activeUserTab === "unlisted" ? (
-                              <Button variant="primary" size="sm" className="h-8 text-[11px] py-0 px-3 bg-sky-500 hover:bg-sky-600 border-none shadow-sm rounded-xl">
-                                List Item
-                              </Button>
-                            ) : (
-                              <div className="flex flex-col gap-1.5">
-                                <p className="text-[11px] font-mono text-center text-cream-600 font-bold bg-cream-50 py-1 rounded-lg border border-cream-100">
-                                  {formatEth(listing?.price || 0n)} ETH
-                                </p>
-                                <Button variant="ghost" size="sm" className="h-8 text-[11px] py-0 px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600 border-rose-100 rounded-xl">
-                                  Cancel
-                                </Button>
-                              </div>
-                            )}
+
+                            {/* Button Layout Outside the Card Image */}
+                            <div className="flex items-center gap-1 mt-1.5">
+                              {activeUserTab === "unlisted" ? (
+                                <>
+                                  {/* View Detail Button */}
+                                  <Link
+                                    href={`/nft/${address}/${nft.tokenId}`}
+                                    className="p-1.5 rounded-lg bg-cream-50 hover:bg-cream-100 border border-cream-200/60 text-cream-500 hover:text-cream-700 transition-all flex items-center justify-center shrink-0"
+                                    title="View Details"
+                                  >
+                                    <Eye size={12} />
+                                  </Link>
+
+                                  {/* List Button */}
+                                  {!isApproved ? (
+                                    <button
+                                      onClick={() => approve()}
+                                      disabled={approvalPending}
+                                      className="flex-1 py-1.5 rounded-lg bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-white font-display font-bold text-[10px] shadow-sm text-center transition-all disabled:opacity-50"
+                                    >
+                                      {approvalPending ? "..." : "Approve"}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => setListModalNft(nft)}
+                                      className="flex-1 py-1.5 rounded-lg bg-gradient-to-r from-sky-400 to-sky-500 hover:from-sky-500 hover:to-sky-600 text-white font-display font-bold text-[10px] shadow-sm text-center transition-all"
+                                    >
+                                      List
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {/* View Detail Button */}
+                                  <Link
+                                    href={`/nft/${address}/${nft.tokenId}`}
+                                    className="p-1.5 rounded-lg bg-cream-50 hover:bg-cream-100 border border-cream-200/60 text-cream-500 hover:text-cream-700 transition-all flex items-center justify-center shrink-0"
+                                    title="View Details"
+                                  >
+                                    <Eye size={12} />
+                                  </Link>
+
+                                  {/* Edit Listing Price Button */}
+                                  <button
+                                    onClick={() => {
+                                      setEditListingNft({ tokenId: nft.tokenId, nftAddress: address, price: listing?.price || 0n });
+                                      setEditPrice(formatEth(listing?.price || 0n));
+                                    }}
+                                    className="p-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 border border-sky-100 text-sky-600 hover:text-sky-700 transition-all flex items-center justify-center shrink-0"
+                                    title="Edit Price"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+
+                                  {/* Cancel Listing Button */}
+                                  <button
+                                    onClick={() => handleCancel(nft.tokenId)}
+                                    disabled={cancelPending}
+                                    className="flex-1 py-1.5 rounded-lg bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-display font-bold text-[10px] shadow-sm text-center transition-all disabled:opacity-50"
+                                    title="Cancel Listing"
+                                  >
+                                    {cancelPending ? "..." : "Cancel"}
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         );
                       });
@@ -399,6 +503,121 @@ export default function CollectionPage() {
               <Button variant="ghost" fullWidth onClick={() => setBuyModal(null)}>Cancel</Button>
               <Button variant="primary" fullWidth loading={buyPending} onClick={handleBuy}>
                 Buy · {formatEth(buyModal.price)} ETH
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── List Modal ── */}
+      <Modal open={!!listModalNft} onClose={() => setListModalNft(null)} title="List NFT for Sale">
+        {listModalNft && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-cream-50 rounded-xl border border-cream-100">
+              <div className="w-10 h-10 rounded-xl bg-cream-200 flex items-center justify-center relative overflow-hidden shrink-0">
+                <Image
+                  src={resolveIPFS(listModalNft.metadata?.image || "")}
+                  alt={`NFT ${listModalNft.tokenId}`}
+                  fill
+                  className="object-cover"
+                  unoptimized
+                />
+              </div>
+              <div>
+                <p className="text-sm font-display font-semibold text-cream-900">
+                  {listModalNft.metadata?.name || `${collection.name} #${listModalNft.tokenId}`}
+                </p>
+                <p className="text-xs text-cream-400 font-sans">Token ID: #{listModalNft.tokenId}</p>
+              </div>
+            </div>
+
+            <Input
+              label="Listing Price (ETH)"
+              type="number"
+              step="0.001"
+              min="0"
+              placeholder="0.05"
+              value={listPrice}
+              onChange={(e) => setListPrice(e.target.value)}
+              suffix="ETH"
+              hint="Set the price at which others can buy your NFT."
+            />
+
+            {listPrice && parseFloat(listPrice) > 0 && (
+              <PriceBreakdown
+                priceWei={parseEther(listPrice)}
+                royaltyBps={collection.royaltyBps || 0}
+              />
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <Button variant="ghost" fullWidth onClick={() => setListModalNft(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                fullWidth
+                loading={listPending}
+                disabled={!listPrice || parseFloat(listPrice) <= 0}
+                onClick={handleListItem}
+              >
+                List for {listPrice || "—"} ETH
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Update Price Modal ── */}
+      <Modal open={!!editListingNft} onClose={() => setEditListingNft(null)} title="Update Listing Price">
+        {editListingNft && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 bg-cream-50 rounded-xl border border-cream-100">
+              <div className="w-10 h-10 rounded-xl bg-cream-200 flex items-center justify-center relative overflow-hidden shrink-0">
+                <Image
+                  src={resolveIPFS(
+                    ownedNFTs.find(n => n.tokenId === editListingNft.tokenId)?.metadata?.image || ""
+                  )}
+                  alt={`NFT ${editListingNft.tokenId}`}
+                  fill
+                  className="object-cover"
+                  unoptimized
+                />
+              </div>
+              <div>
+                <p className="text-sm font-display font-semibold text-cream-900">
+                  {ownedNFTs.find(n => n.tokenId === editListingNft.tokenId)?.metadata?.name || `${collection.name} #${editListingNft.tokenId}`}
+                </p>
+                <p className="text-xs text-cream-400 font-sans">Token ID: #{editListingNft.tokenId}</p>
+              </div>
+            </div>
+
+            <Input
+              label="New Price (ETH)"
+              type="number"
+              step="0.001"
+              min="0"
+              placeholder={formatEth(editListingNft.price)}
+              value={editPrice}
+              onChange={(e) => setEditPrice(e.target.value)}
+              suffix="ETH"
+            />
+
+            {editPrice && parseFloat(editPrice) > 0 && (
+              <PriceBreakdown
+                priceWei={parseEther(editPrice)}
+                royaltyBps={collection.royaltyBps || 0}
+              />
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <Button variant="ghost" fullWidth onClick={() => setEditListingNft(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                fullWidth
+                loading={updatePending}
+                disabled={!editPrice || parseFloat(editPrice) <= 0}
+                onClick={handleUpdateListing}
+              >
+                Update to {editPrice || "—"} ETH
               </Button>
             </div>
           </div>

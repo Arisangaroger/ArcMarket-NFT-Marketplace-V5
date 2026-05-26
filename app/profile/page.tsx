@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useAccount } from "wagmi";
 import Link from "next/link";
-import { EarningsPanel } from "@/components/nft/EarningsPanel";
+import Image from "next/image";
 import { NFTCard } from "@/components/nft/NFTCard";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -58,10 +58,19 @@ export default function ProfilePage() {
   const { listings: allListings, isLoading: isLoadingListings, refetch: refetchMarketplace } = useMarketplaceState();
   const publicClient = usePublicClient();
 
+  console.log("ProfilePage debug:", {
+    connectedAddress: address,
+    isConnected,
+    allListingsLength: allListings.length,
+    allListings: allListings.map((l) => ({ tokenId: l.tokenId, seller: l.seller, nftAddress: l.nftAddress })),
+  });
+
   // 1. Get real listings by current user
   const myListings = allListings.filter(
     (l) => l.seller.toLowerCase() === address?.toLowerCase()
   );
+
+  console.log("ProfilePage myListings:", myListings);
 
   // 2. Fetch owned NFTs (Scanner)
   const fetchOwnedNfts = useCallback(async () => {
@@ -153,8 +162,13 @@ export default function ProfilePage() {
     fetchOwnedNfts();
   }, [address, publicClient]);
 
-  const { updateListing, isPending: updatePending } = useUpdateListing(refetchMarketplace);
-  const { cancelListing, isPending: cancelPending } = useCancelListing(refetchMarketplace);
+  const handleSuccess = useCallback(() => {
+    refetchMarketplace();
+    fetchOwnedNfts();
+  }, [refetchMarketplace, fetchOwnedNfts]);
+
+  const { updateListing, isPending: updatePending } = useUpdateListing(handleSuccess);
+  const { cancelListing, isPending: cancelPending } = useCancelListing(handleSuccess);
 
   const grouped = groupByCollection(myOwnedNfts);
 
@@ -310,77 +324,39 @@ export default function ProfilePage() {
 
       {/* ── Tab: My Listings ── */}
       {tab === "listings" && (
-        <div className="space-y-3">
-          {isLoadingListings ? (
-            <div className="text-center py-16">
-              <Loader2 size={32} className="text-sky-500 animate-spin mx-auto mb-3" />
-              <p className="text-cream-400 font-sans">Fetching your active listings...</p>
+        <div className="space-y-8">
+          {Object.entries(groupByCollection(myListings)).map(([collection, listings]) => (
+            <div key={collection}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-display font-semibold text-cream-800 flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                  {collection}
+                  <Badge variant="gray">{listings.length}</Badge>
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {listings.map((listing) => (
+                  <NFTCard
+                    key={`${listing.nftAddress}-${listing.tokenId}`}
+                    listing={listing}
+                    onEdit={setEditListing}
+                    onCancel={handleCancel}
+                  />
+                ))}
+              </div>
             </div>
-          ) : myListings.length === 0 ? (
+          ))}
+          {!isLoadingListings && myListings.length === 0 && (
             <div className="text-center py-16">
               <Tag size={32} className="text-cream-300 mx-auto mb-3" />
               <p className="text-cream-400 font-sans">You have no active listings.</p>
             </div>
-          ) : (
-            myListings.map((listing) => (
-              <div
-                key={`${listing.nftAddress}-${listing.tokenId}`}
-                className="bg-white rounded-2xl border border-cream-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-              >
-                {/* NFT info */}
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-cream-100 overflow-hidden shrink-0 flex items-center justify-center text-cream-400">
-                    <ImageIcon size={18} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-display font-semibold text-cream-900">
-                      {listing.metadata?.name || `NFT #${listing.tokenId}`}
-                    </p>
-                    <p className="text-xs text-cream-400 font-sans">{listing.collectionName} · #{listing.tokenId}</p>
-                    {listing.hasRoyalty && (
-                      <span className="inline-flex items-center gap-1 text-xs text-violet-600 font-sans mt-0.5">
-                        <Gem size={10} /> {listing.royaltyBps! / 100}% royalty on resale
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Price + Actions */}
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <div className="text-right">
-                    <p className="text-xs text-cream-400 font-sans">Listed at</p>
-                    <p className="text-lg font-display font-bold text-cream-900">
-                      {formatEth(listing.price)} <span className="text-sm font-normal text-cream-400">ETH</span>
-                    </p>
-                  </div>
-
-                  {/* Inline edit */}
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => { setEditListing(listing); setNewPrice(formatEth(listing.price)); }}
-                  >
-                    <Pencil size={12} />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    loading={cancelPending}
-                    onClick={() => handleCancel(listing)}
-                  >
-                    <X size={12} />
-                    Cancel
-                  </Button>
-                  <Link
-                    href={`/nft/${listing.nftAddress}/${listing.tokenId}`}
-                    className="p-1.5 text-cream-400 hover:text-sky-500 transition-colors"
-                  >
-                    <ExternalLink size={14} />
-                  </Link>
-                </div>
-              </div>
-            ))
+          )}
+          {isLoadingListings && (
+            <div className="text-center py-16">
+              <Loader2 size={32} className="text-sky-500 animate-spin mx-auto mb-3" />
+              <p className="text-cream-400 font-sans">Fetching your active listings...</p>
+            </div>
           )}
         </div>
       )}
