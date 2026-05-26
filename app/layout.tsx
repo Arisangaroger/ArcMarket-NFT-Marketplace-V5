@@ -3,6 +3,8 @@ import "./globals.css";
 import { Providers } from "@/components/layout/Providers";
 import { Navbar } from "@/components/layout/Navbar";
 import { PLATFORM_NAME } from "@/lib/constants";
+// 1. IMPORT THE SPEED INSIGHTS COMPONENT HERE
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
   title: `${PLATFORM_NAME} — Transparent NFT Marketplace`,
@@ -33,6 +35,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </p>
             </div>
           </footer>
+          
+          {/* 2. ADD THE TAG RIGHT HERE INSIDE THE PROVIDERS WRAPPER */}
+          <SpeedInsights />
+          
         </Providers>
       </body>
     </html>
