@@ -11,7 +11,13 @@ export function useRoyaltyInfo(nftAddress: `0x${string}` | undefined, tokenId: s
     abi: ERC2981_ABI,
     functionName: "royaltyInfo",
     args: tokenId ? [BigInt(tokenId), samplePrice] : undefined,
-    query: { enabled: !!nftAddress && !!tokenId, retry: 1 },
+    query: { 
+      enabled: !!nftAddress && !!tokenId, 
+      retry: 1,
+      // Royalty info is immutable on-chain - cache aggressively
+      staleTime: 60 * 60_000, // 1 hour
+      gcTime: 24 * 60 * 60_000, // 24 hours
+    },
   });
 
   // ERC2981 may not be supported — treat error as no royalty

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
-import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS } from "@/lib/constants";
+import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS, CHAIN_ID } from "@/lib/constants";
 import { useMarketStore } from "@/lib/store";
 
 export function useEarnings() {
@@ -16,7 +16,12 @@ export function useEarnings() {
     abi: MARKETPLACE_ABI,
     functionName: "proceeds",
     args: userAddress ? [userAddress] : undefined,
-    query: { enabled: !!userAddress },
+    query: { 
+      enabled: !!userAddress,
+      // User balances change with transactions - cache for 20 seconds
+      staleTime: 20_000, // 20 seconds
+      gcTime: 60_000, // 1 minute
+    },
   });
 
   const { data: royalties, refetch: refetchRoyalties } = useReadContract({
@@ -24,19 +29,34 @@ export function useEarnings() {
     abi: MARKETPLACE_ABI,
     functionName: "royalties",
     args: userAddress ? [userAddress] : undefined,
-    query: { enabled: !!userAddress },
+    query: { 
+      enabled: !!userAddress,
+      // Royalties change less frequently - cache for 30 seconds
+      staleTime: 30_000, // 30 seconds
+      gcTime: 2 * 60_000, // 2 minutes
+    },
   });
 
   const { data: marketplaceBalance, refetch: refetchFees } = useReadContract({
     address: MARKETPLACE_ADDRESS,
     abi: MARKETPLACE_ABI,
     functionName: "marketplaceBalance",
+    query: {
+      // Platform balance - cache for 1 minute
+      staleTime: 60_000, // 1 minute
+      gcTime: 5 * 60_000, // 5 minutes
+    },
   });
 
   const { data: owner } = useReadContract({
     address: MARKETPLACE_ADDRESS,
     abi: MARKETPLACE_ABI,
     functionName: "owner",
+    query: {
+      // Owner never changes - cache for 1 hour
+      staleTime: 60 * 60_000, // 1 hour
+      gcTime: 24 * 60 * 60_000, // 24 hours
+    },
   });
 
   // 2. Withdrawal Actions
@@ -61,6 +81,7 @@ export function useEarnings() {
       setWithdrawType("proceeds");
       setActiveTx({ status: "pending", message: "Confirm withdrawal in wallet…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "withdrawProceeds",
@@ -78,6 +99,7 @@ export function useEarnings() {
       setWithdrawType("royalties");
       setActiveTx({ status: "pending", message: "Confirm withdrawal in wallet…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "withdrawRoyalties",
@@ -95,6 +117,7 @@ export function useEarnings() {
       setWithdrawType("fees");
       setActiveTx({ status: "pending", message: "Confirm withdrawal in wallet…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "withdrawMarketplaceFees",

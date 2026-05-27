@@ -16,6 +16,7 @@ import { useMarketplaceState } from "@/hooks/useMarketplaceState";
 import { shortenAddress, formatEth, ERC721_ABI, resolveIPFS, COLLECTION_ABI } from "@/lib/constants";
 import { COLLECTION_ADDRESSES } from "@/lib/collections-config";
 import { NFTListing } from "@/lib/types";
+import { fetchWithCache } from "@/lib/ipfsCache";
 import {
   Wallet, Image as ImageIcon, Tag, DollarSign,
   Pencil, X, ExternalLink, Copy, Gem, Loader2, TrendingUp, Zap
@@ -126,8 +127,8 @@ export default function ProfilePage() {
                   args: [BigInt(tokenId)],
                 }) as string;
                 
-                const res = await fetch(resolveIPFS(tokenURI));
-                const data = await res.json();
+                // Use cached fetch instead of regular fetch
+                const data = await fetchWithCache(resolveIPFS(tokenURI));
                 metadata = {
                   name: data.name || metadata.name,
                   description: data.description || "",

@@ -1,6 +1,6 @@
 "use client";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS } from "@/lib/constants";
+import { MARKETPLACE_ABI, MARKETPLACE_ADDRESS, CHAIN_ID } from "@/lib/constants";
 import { useMarketStore } from "@/lib/store";
 import { useEffect } from "react";
 
@@ -13,6 +13,7 @@ export function useWithdrawPlatformFees(onSuccess?: () => void) {
     try {
       setActiveTx({ status: "pending", message: "Confirm platform fee withdrawal…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: MARKETPLACE_ADDRESS,
         abi: MARKETPLACE_ABI,
         functionName: "withdrawMarketplaceFees",

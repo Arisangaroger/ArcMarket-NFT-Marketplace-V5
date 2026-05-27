@@ -12,7 +12,12 @@ export function useListing(nftAddress: `0x${string}` | undefined, tokenId: strin
     abi: MARKETPLACE_ABI,
     functionName: "listings",
     args: nftAddress && tokenId ? [nftAddress, BigInt(tokenId)] : undefined,
-    query: { enabled: !!nftAddress && !!tokenId },
+    query: { 
+      enabled: !!nftAddress && !!tokenId,
+      // Listing data changes when bought/listed - cache for 30 seconds
+      staleTime: 30_000, // 30 seconds
+      gcTime: 2 * 60_000, // 2 minutes
+    },
   });
 
   const listing = data as [string, bigint, boolean] | undefined;

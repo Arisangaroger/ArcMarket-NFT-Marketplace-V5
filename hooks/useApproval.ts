@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { ERC721_ABI, MARKETPLACE_ADDRESS } from "@/lib/constants";
+import { ERC721_ABI, MARKETPLACE_ADDRESS, CHAIN_ID } from "@/lib/constants";
 import { useMarketStore } from "@/lib/store";
 
 export function useApproval(
@@ -13,7 +13,12 @@ export function useApproval(
     abi: ERC721_ABI,
     functionName: "isApprovedForAll",
     args: ownerAddress ? [ownerAddress, MARKETPLACE_ADDRESS] : undefined,
-    query: { enabled: !!nftAddress && !!ownerAddress },
+    query: { 
+      enabled: !!nftAddress && !!ownerAddress,
+      // Approval status changes rarely - cache for 2 minutes
+      staleTime: 2 * 60_000, // 2 minutes
+      gcTime: 5 * 60_000, // 5 minutes
+    },
   });
 
   const { writeContractAsync, isPending, data: hash } = useWriteContract();
@@ -36,6 +41,7 @@ export function useApproval(
     try {
       setActiveTx({ status: "pending", message: "Confirm approval in wallet…" });
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address: nftAddress,
         abi: ERC721_ABI,
         functionName: "setApprovalForAll",

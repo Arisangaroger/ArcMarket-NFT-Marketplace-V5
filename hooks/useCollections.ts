@@ -7,6 +7,7 @@ import { Collection } from "@/lib/types";
 import { useMarketplaceState } from "./useMarketplaceState";
 import { useMarketStore } from "@/lib/store";
 import { parseEther } from "viem";
+import { fetchWithCache } from "@/lib/ipfsCache";
 
 export function useCollections() {
   const { customCollections } = useMarketStore();
@@ -37,6 +38,11 @@ export function useCollections() {
 
   const { data, isLoading: isLoadingContracts, error, refetch } = useReadContracts({
     contracts: contracts as any,
+    query: {
+      // Collections data rarely changes - cache for 5 minutes
+      staleTime: 5 * 60_000, // 5 minutes
+      gcTime: 10 * 60_000, // 10 minutes
+    },
   });
 
   // Effect to resolve images from tokenURIs that aren't in listings
@@ -131,14 +137,12 @@ export function useCollections() {
         for (const uri of uniqueUris) {
           try {
             const url = resolveIPFS(uri);
-            const res = await fetch(url);
-            if (res.ok) {
-              const meta = await res.json();
-              if (meta.image) {
-                const imgUrl = resolveIPFS(meta.image);
-                if (!resolvedImages.includes(imgUrl)) {
-                   resolvedImages.push(imgUrl);
-                }
+            // Use cached fetch instead of regular fetch
+            const meta = await fetchWithCache(url);
+            if (meta.image) {
+              const imgUrl = resolveIPFS(meta.image);
+              if (!resolvedImages.includes(imgUrl)) {
+                 resolvedImages.push(imgUrl);
               }
             }
           } catch (e) {
@@ -251,7 +255,12 @@ export function useCollections() {
 
   const { data, isLoading: isLoadingContracts, error, refetch } = useReadContracts({
     contracts: contracts as any,
-    query: { enabled: !!address },
+    query: { 
+      enabled: !!address,
+      // Single collection data - cache for 3 minutes
+      staleTime: 3 * 60_000, // 3 minutes
+      gcTime: 10 * 60_000, // 10 minutes
+    },
   });
 
   const [injected, setInjected] = useState<string[]>([]);
@@ -320,13 +329,11 @@ export function useCollections() {
       for (const uri of uniqueUris) {
         try {
           const url = resolveIPFS(uri);
-          const res = await fetch(url);
-          if (res.ok) {
-            const meta = await res.json();
-            if (meta.image) {
-              const imgUrl = resolveIPFS(meta.image);
-              if (!resolved.includes(imgUrl)) resolved.push(imgUrl);
-            }
+          // Use cached fetch instead of regular fetch
+          const meta = await fetchWithCache(url);
+          if (meta.image) {
+            const imgUrl = resolveIPFS(meta.image);
+            if (!resolved.includes(imgUrl)) resolved.push(imgUrl);
           }
         } catch {}
       }
@@ -459,8 +466,8 @@ export function useUserCollectionNFTs(address: string | undefined) {
               args: [id],
             }) as string;
 
-            const res = await fetch(resolveIPFS(uri));
-            const meta = await res.json();
+            // Use cached fetch instead of regular fetch
+            const meta = await fetchWithCache(resolveIPFS(uri));
             return {
               tokenId: id.toString(),
               metadata: {

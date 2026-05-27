@@ -8,8 +8,16 @@ import { TxStatusBar } from "@/components/ui/TxStatus";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
+      // Default stale time: 1 minute for most queries
+      staleTime: 60_000, // 1 minute
+      // Cache time: Keep data in cache for 5 minutes after it becomes unused
+      gcTime: 5 * 60_000, // 5 minutes (formerly cacheTime)
+      // Don't refetch on window focus (reduces unnecessary RPC calls)
       refetchOnWindowFocus: false,
+      // Retry failed queries once
+      retry: 1,
+      // Refetch on mount only if data is stale
+      refetchOnMount: true,
     },
   },
 });

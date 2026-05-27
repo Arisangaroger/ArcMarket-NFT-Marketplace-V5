@@ -1,6 +1,6 @@
 "use client";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { COLLECTION_ABI } from "@/lib/constants";
+import { COLLECTION_ABI, CHAIN_ID } from "@/lib/constants";
 import { useMarketStore } from "@/lib/store";
 import { toast } from "sonner";
 import { useEffect } from "react";
@@ -18,6 +18,7 @@ export function useMint(onSuccess?: () => void) {
       setActiveTx({ status: "pending", message: "Confirm minting in wallet…" });
       
       const h = await writeContractAsync({
+        chainId: CHAIN_ID,
         address,
         abi: COLLECTION_ABI,
         functionName: "mintNFT",
